@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getFDFixtures, COMPETITIONS } from "@/lib/football-data";
-import { searchTSDTeam, getTSDEventsByTeam } from "@/lib/thesportsdb";
+import { searchTSDTeam, getTSDNextEvents } from "@/lib/thesportsdb";
 
 const API_FOOTBALL_BASE = process.env.API_FOOTBALL_BASE_URL || "https://api-football-v1.p.rapidapi.com/v3";
 const API_FOOTBALL_KEY = process.env.RAPIDAPI_KEY || "";
@@ -39,7 +39,6 @@ const LIGA_MX_TEAMS = [
 
 async function getLigaMXFixtures(): Promise<Fixture[]> {
   try {
-    const season = new Date().getFullYear().toString();
     const allFixtures: Fixture[] = [];
 
     // Obtener próximos eventos de cada equipo
@@ -48,7 +47,7 @@ async function getLigaMXFixtures(): Promise<Fixture[]> {
         const team = await searchTSDTeam(teamName);
         if (!team) continue;
 
-        const events = await getTSDEventsByTeam(team.idTeam, season);
+        const events = await getTSDNextEvents(team.idTeam);
         
         // Filtrar solo partidos programados (sin resultado)
         const upcoming = events.filter((e) => 
@@ -61,12 +60,12 @@ async function getLigaMXFixtures(): Promise<Fixture[]> {
             id: parseInt(event.idEvent),
             homeTeam: event.strHomeTeam,
             awayTeam: event.strAwayTeam,
-            homeTeamLogo: "",
-            awayTeamLogo: "",
+            homeTeamLogo: event.strHomeTeamBadge || "",
+            awayTeamLogo: event.strAwayTeamBadge || "",
             date: event.dateEvent + (event.strTime ? `T${event.strTime}` : ""),
             status: "NS",
-            matchday: parseInt(event.strRound) || 0,
-            venue: "",
+            matchday: parseInt(event.intRound) || 0,
+            venue: event.strVenue || "",
             league: "Liga MX",
             leagueId: 262,
           });

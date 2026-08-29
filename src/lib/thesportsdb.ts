@@ -29,6 +29,7 @@ export interface TSDEvent {
   strEvent: string;
   strSeason: string;
   strRound: string;
+  intRound: string;
   strHomeTeam: string;
   strAwayTeam: string;
   intHomeScore: string;
@@ -36,6 +37,9 @@ export interface TSDEvent {
   strStatus: string;
   dateEvent: string;
   strTime: string;
+  strVenue: string;
+  strHomeTeamBadge: string;
+  strAwayTeamBadge: string;
 }
 
 export interface TSDPlayer {
@@ -85,6 +89,18 @@ export async function getTSDEventsByTeam(
   try {
     const res = await fetch(
       `${BASE_URL}/eventsseason.php?id=${teamId}&s=${season}`
+    );
+    const data = await res.json();
+    return data?.events || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getTSDNextEvents(teamId: string): Promise<TSDEvent[]> {
+  try {
+    const res = await fetch(
+      `${BASE_URL}/eventsnext.php?id=${teamId}`
     );
     const data = await res.json();
     return data?.events || [];
