@@ -5,13 +5,15 @@
 // GET  /api/predictions — historial
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { predictMatch, type PoissonInput } from "@/lib/models/poisson";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getSupabase() {
+  const { createClient } = require("@supabase/supabase-js");
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -68,30 +70,35 @@ export async function POST(request: NextRequest) {
     // Guardar predicción en Supabase si se enviaron IDs
     let savedId: string | null = null;
     if (homeTeamId && awayTeamId) {
-      const { data, error } = await supabase
-        .from("predictions")
-        .insert({
-          match_id: matchId || null,
-          home_team_id: homeTeamId,
-          away_team_id: awayTeamId,
-          model_used: "poisson-v1",
-          home_win_prob: result.probabilities.homeWin,
-          draw_prob: result.probabilities.draw,
-          away_win_prob: result.probabilities.awayWin,
-          expected_home_goals: result.expectedHomeGoals,
-          expected_away_goals: result.expectedAwayGoals,
-          predicted_score_home: result.mostLikelyScore.home,
-          predicted_score_away: result.mostLikelyScore.away,
-          over25_prob: result.overUnder.over25,
-          under25_prob: result.overUnder.under25,
-          btts_yes_prob: result.btts.yes,
-          btts_no_prob: result.btts.no,
-          explanation: result.explanation,
-        })
-        .select("id")
-        .single();
+      try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from("predictions")
+          .insert({
+            match_id: matchId || null,
+            home_team_id: homeTeamId,
+            away_team_id: awayTeamId,
+            model_used: "poisson-v1",
+            home_win_prob: result.probabilities.homeWin,
+            draw_prob: result.probabilities.draw,
+            away_win_prob: result.probabilities.awayWin,
+            expected_home_goals: result.expectedHomeGoals,
+            expected_away_goals: result.expectedAwayGoals,
+            predicted_score_home: result.mostLikelyScore.home,
+            predicted_score_away: result.mostLikelyScore.away,
+            over25_prob: result.overUnder.over25,
+            under25_prob: result.overUnder.under25,
+            btts_yes_prob: result.btts.yes,
+            btts_no_prob: result.btts.no,
+            explanation: result.explanation,
+          })
+          .select("id")
+          .single();
 
-      if (!error && data) savedId = data.id;
+        if (!error && data) savedId = data.id;
+      } catch (e) {
+        console.error("Error saving prediction to DB:", e);
+      }
     }
 
     return NextResponse.json({
@@ -116,6 +123,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 100);
     const offset = parseInt(searchParams.get("offset") || "0");
+
+    const supabase = getSupabase();
 
     const { data, error, count } = await supabase
       .from("predictions")

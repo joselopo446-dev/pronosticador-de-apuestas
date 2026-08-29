@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-const API_FOOTBALL_BASE = process.env.NEXT_PUBLIC_API_FOOTBALL_BASE_URL!;
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY!;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseAny = any;
 
 const LEAGUES = [
   { id: 262, slug: "liga-mx", country: "Mexico" },
@@ -35,26 +28,24 @@ interface ApiFixture {
     home: number | null;
     away: number | null;
   };
-  score: {
-    halftime: { home: number | null; away: number | null };
-    fulltime: { home: number | null; away: number | null };
-  };
 }
 
 async function fetchFromApi(endpoint: string, params: Record<string, string> = {}) {
+  const baseUrl = process.env.NEXT_PUBLIC_API_FOOTBALL_BASE_URL!;
+  const apiKey = process.env.RAPIDAPI_KEY!;
   const qs = new URLSearchParams({ league: "", season: "", ...params }).toString();
-  const url = `${API_FOOTBALL_BASE}${endpoint}?${qs}`;
+  const url = `${baseUrl}${endpoint}?${qs}`;
   const res = await fetch(url, {
     headers: {
       "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
-      "x-rapidapi-key": RAPIDAPI_KEY,
+      "x-rapidapi-key": apiKey,
     },
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
   return res.json();
 }
 
-async function syncFixtures(leagueId: number, leagueSlug: string) {
+async function syncFixtures(supabase: SupabaseAny, leagueId: number, leagueSlug: string) {
   const data = await fetchFromApi("/fixtures", {
     league: String(leagueId),
     season: String(SEASON),
@@ -68,13 +59,11 @@ async function syncFixtures(leagueId: number, leagueSlug: string) {
     const homeTeam = f.teams.home;
     const awayTeam = f.teams.away;
 
-    // Upsert home team
     await supabase.from("teams").upsert(
       { id: homeTeam.id, name: homeTeam.name, logo_url: homeTeam.logo },
       { onConflict: "id" }
     );
 
-    // Upsert away team
     await supabase.from("teams").upsert(
       { id: awayTeam.id, name: awayTeam.name, logo_url: awayTeam.logo },
       { onConflict: "id" }
@@ -82,7 +71,6 @@ async function syncFixtures(leagueId: number, leagueSlug: string) {
 
     const matchDate = new Date(f.fixture.date).toISOString().split("T")[0];
 
-    // Get or create the competition ID from our DB
     const { data: comp } = await supabase
       .from("competitions")
       .select("id")
@@ -91,7 +79,6 @@ async function syncFixtures(leagueId: number, leagueSlug: string) {
 
     if (!comp) continue;
 
-    // Get team IDs in our DB
     const { data: homeDb } = await supabase
       .from("teams")
       .select("id")
@@ -138,17 +125,22 @@ async function syncFixtures(leagueId: number, leagueSlug: string) {
 }
 
 export async function GET(request: NextRequest) {
-  // Verify cron secret
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { createClient } = await import("@supabase/supabase-js");
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
   const results = [];
 
   for (const league of LEAGUES) {
     try {
-      const result = await syncFixtures(league.id, league.slug);
+      const result = await syncFixtures(supabase, league.id, league.slug);
       results.push({ league: league.slug, ...result });
     } catch (error) {
       results.push({
