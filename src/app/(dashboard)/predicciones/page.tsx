@@ -6,6 +6,7 @@
 "use client";
 
 import { useState } from "react";
+import { TEAMS } from "@/config/teams";
 
 interface PredictionResult {
   expectedHomeGoals: number;
@@ -38,35 +39,6 @@ interface PredictionResult {
     summary: string;
   };
 }
-
-const TEAMS = [
-  { name: "Club América", attack: 1.5, defense: 0.8 },
-  { name: "Cruz Azul", attack: 1.3, defense: 0.9 },
-  { name: "Guadalajara (Chivas)", attack: 1.1, defense: 1.0 },
-  { name: "Tigres UANL", attack: 1.4, defense: 0.85 },
-  { name: "Monterrey", attack: 1.35, defense: 0.9 },
-  { name: "León", attack: 1.2, defense: 1.05 },
-  { name: "Pumas UNAM", attack: 1.15, defense: 1.0 },
-  { name: "Real Sociedad", attack: 1.25, defense: 0.95 },
-  { name: "Toluca", attack: 1.1, defense: 1.1 },
-  { name: "Santos Laguna", attack: 1.05, defense: 1.15 },
-  { name: "Atlas", attack: 0.95, defense: 1.1 },
-  { name: "Necaxa", attack: 0.9, defense: 1.2 },
-  { name: "Puebla", attack: 0.85, defense: 1.25 },
-  { name: "Mazatlán", attack: 0.9, defense: 1.2 },
-  { name: "Juárez", attack: 0.8, defense: 1.3 },
-  { name: "San Luis", attack: 0.85, defense: 1.2 },
-  { name: "Real Madrid", attack: 1.6, defense: 0.7 },
-  { name: "Barcelona", attack: 1.5, defense: 0.8 },
-  { name: "Atlético Madrid", attack: 1.3, defense: 0.85 },
-  { name: "Sevilla", attack: 1.1, defense: 0.95 },
-  { name: "Real Sociedad (ESP)", attack: 1.15, defense: 0.9 },
-  { name: "Villarreal", attack: 1.2, defense: 0.95 },
-  { name: "Athletic Bilbao", attack: 1.1, defense: 0.9 },
-  { name: "Valencia", attack: 1.05, defense: 1.0 },
-  { name: "Real Betis", attack: 1.1, defense: 1.0 },
-  { name: "Osasuna", attack: 1.0, defense: 1.05 },
-];
 
 export default function PrediccionesPage() {
   const [homeTeam, setHomeTeam] = useState(TEAMS[0]);

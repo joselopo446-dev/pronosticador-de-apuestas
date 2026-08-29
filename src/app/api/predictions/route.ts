@@ -2,7 +2,6 @@
 // API ROUTE — GENERAR PREDICCIÓN
 // =============================================
 // POST /api/predictions
-// Recibe datos de un partido y retorna predicción Poisson.
 
 import { NextRequest, NextResponse } from "next/server";
 import { predictMatch, type PoissonInput } from "@/lib/models/poisson";
@@ -19,7 +18,7 @@ export async function POST(request: NextRequest) {
       homeAdvantage,
     } = body;
 
-    // Validar parámetros
+    // Validar parámetros obligatorios
     if (
       typeof homeTeamAttack !== "number" ||
       typeof homeTeamDefense !== "number" ||
@@ -28,6 +27,22 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Faltan parámetros obligatorios" },
+        { status: 400 }
+      );
+    }
+
+    // Validar rangos (0-2 para attack/defense)
+    const validateRange = (v: number, name: string) => {
+      if (v < 0 || v > 2) throw new Error(`${name} debe estar entre 0 y 2`);
+    };
+    validateRange(homeTeamAttack, "homeTeamAttack");
+    validateRange(homeTeamDefense, "homeTeamDefense");
+    validateRange(awayTeamAttack, "awayTeamAttack");
+    validateRange(awayTeamDefense, "awayTeamDefense");
+
+    if (homeAdvantage !== undefined && (homeAdvantage < 1 || homeAdvantage > 2)) {
+      return NextResponse.json(
+        { error: "homeAdvantage debe estar entre 1 y 2" },
         { status: 400 }
       );
     }
@@ -49,9 +64,10 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("Prediction error:", error);
+    const message = error instanceof Error ? error.message : "Error desconocido";
+    console.error("Prediction error:", message);
     return NextResponse.json(
-      { error: "Error al generar predicción" },
+      { error: message },
       { status: 500 }
     );
   }

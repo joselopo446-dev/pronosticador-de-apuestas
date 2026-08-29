@@ -4,13 +4,14 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { env } from "@/lib/env";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    env.SUPABASE_URL,
+    env.SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() {
@@ -35,16 +36,17 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isAuthPage = pathname === "/login" || pathname === "/register";
-  const isDashboard = pathname.startsWith("/deportes") || pathname.startsWith("/loteria") || pathname.startsWith("/predicciones");
+  const isDashboard =
+    pathname.startsWith("/deportes") ||
+    pathname.startsWith("/loteria") ||
+    pathname.startsWith("/predicciones");
 
-  // No autenticado + ruta protegida → redirigir a login
   if (!user && isDashboard) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  // Autenticado + en login/register → redirigir a dashboard
   if (user && isAuthPage) {
     const url = request.nextUrl.clone();
     url.pathname = "/deportes";

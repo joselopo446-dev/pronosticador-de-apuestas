@@ -3,6 +3,7 @@
 // =============================================
 // Muestra tabla de posiciones, resultados y próximos partidos.
 
+import Image from "next/image";
 import type { ApiFixture, ApiStandingResponse } from "@/lib/api-football";
 
 interface LeagueViewProps {
@@ -97,10 +98,12 @@ export default function LeagueView({
                       <td className="px-4 py-3 text-gray-400">{row.rank}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <img
+                          <Image
                             src={row.team.logo}
                             alt={row.team.name}
-                            className="w-6 h-6"
+                            width={24}
+                            height={24}
+                            unoptimized
                           />
                           <span className="text-white font-medium">
                             {row.team.name}
@@ -201,11 +204,13 @@ export default function LeagueView({
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 flex-1">
-                        <img
+                        <div className="flex items-center gap-2 flex-1">
+                        <Image
                           src={match.teams.home.logo}
                           alt=""
-                          className="w-5 h-5"
+                          width={20}
+                          height={20}
+                          unoptimized
                         />
                         <span className="text-sm text-white truncate">
                           {match.teams.home.name}
@@ -218,10 +223,12 @@ export default function LeagueView({
                         <span className="text-sm text-white truncate">
                           {match.teams.away.name}
                         </span>
-                        <img
+                        <Image
                           src={match.teams.away.logo}
                           alt=""
-                          className="w-5 h-5"
+                          width={20}
+                          height={20}
+                          unoptimized
                         />
                       </div>
                     </div>
@@ -266,10 +273,12 @@ export default function LeagueView({
                     </div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 flex-1">
-                        <img
+                        <Image
                           src={match.teams.home.logo}
                           alt=""
-                          className="w-5 h-5"
+                          width={20}
+                          height={20}
+                          unoptimized
                         />
                         <span className="text-sm text-white truncate">
                           {match.teams.home.name}
@@ -280,10 +289,12 @@ export default function LeagueView({
                         <span className="text-sm text-white truncate">
                           {match.teams.away.name}
                         </span>
-                        <img
+                        <Image
                           src={match.teams.away.logo}
                           alt=""
-                          className="w-5 h-5"
+                          width={20}
+                          height={20}
+                          unoptimized
                         />
                       </div>
                     </div>

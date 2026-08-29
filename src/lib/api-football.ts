@@ -12,8 +12,10 @@
 // Rate Limiting del tier gratuito: 100 requests/día.
 // Por eso usamos caching agresivo (next: { revalidate }).
 
-const API_KEY = process.env.RAPIDAPI_KEY!;
-const BASE_URL = process.env.API_FOOTBALL_BASE_URL!;
+import { env } from "./env";
+
+const API_KEY = env.RAPIDAPI_KEY;
+const BASE_URL = env.API_FOOTBALL_BASE_URL;
 
 // =============================================
 // FUNCIÓN GENÉRICA DE REQUEST

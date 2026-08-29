@@ -9,11 +9,16 @@ const fs = require('fs');
 const path = require('path');
 
 // Configuración de conexión a Supabase PostgreSQL
+const DB_PASSWORD = process.env.SUPABASE_DB_PASSWORD;
+if (!DB_PASSWORD) {
+  console.error('Error: SUPABASE_DB_PASSWORD no está definido.');
+  console.error('Ejecuta: $env:SUPABASE_DB_PASSWORD="tu_contraseña"');
+  process.exit(1);
+}
+
 const pool = new Pool({
-  connectionString: 'postgresql://postgres:Pronosticador2026@db.uarjzimujqwflmgytohf.supabase.co:5432/postgres',
-  ssl: {
-    rejectUnauthorized: false
-  }
+  connectionString: `postgresql://postgres:${DB_PASSWORD}@db.uarjzimujqwflmgytohf.supabase.co:5432/postgres`,
+  ssl: { rejectUnauthorized: false }
 });
 
 async function setupDatabase() {
