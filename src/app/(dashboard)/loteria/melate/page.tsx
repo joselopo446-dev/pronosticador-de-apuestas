@@ -3,11 +3,9 @@
 // =============================================
 
 import LotteryView from "../LotteryView";
-import { getLotteryHistory } from "@/lib/lottery";
+import { MELATE_HISTORY } from "@/lib/lottery-data";
 
 export default function MelatePage() {
-  const draws = getLotteryHistory("melate");
-
   return (
     <LotteryView
       name="Melate"
@@ -16,7 +14,7 @@ export default function MelatePage() {
       minNumber={1}
       maxNumber={56}
       numbersCount={6}
-      draws={draws}
+      draws={MELATE_HISTORY}
     />
   );
 }

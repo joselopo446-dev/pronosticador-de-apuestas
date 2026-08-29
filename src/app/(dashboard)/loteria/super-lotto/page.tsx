@@ -3,11 +3,9 @@
 // =============================================
 
 import LotteryView from "../LotteryView";
-import { getLotteryHistory } from "@/lib/lottery";
+import { SUPER_LOTTO_HISTORY } from "@/lib/lottery-data";
 
 export default function SuperLottoPage() {
-  const draws = getLotteryHistory("super-lotto");
-
   return (
     <LotteryView
       name="Super Lotto"
@@ -16,7 +14,7 @@ export default function SuperLottoPage() {
       minNumber={1}
       maxNumber={45}
       numbersCount={6}
-      draws={draws}
+      draws={SUPER_LOTTO_HISTORY}
     />
   );
 }

@@ -3,11 +3,9 @@
 // =============================================
 
 import LotteryView from "../LotteryView";
-import { getLotteryHistory } from "@/lib/lottery";
+import { REVANCHA_HISTORY } from "@/lib/lottery-data";
 
 export default function RevanchaPage() {
-  const draws = getLotteryHistory("revancha");
-
   return (
     <LotteryView
       name="Revancha"
@@ -16,7 +14,7 @@ export default function RevanchaPage() {
       minNumber={1}
       maxNumber={56}
       numbersCount={6}
-      draws={draws}
+      draws={REVANCHA_HISTORY}
     />
   );
 }
