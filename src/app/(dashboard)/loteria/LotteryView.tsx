@@ -12,6 +12,8 @@ import {
   calculateCooccurrence,
   findHotNumbers,
   findOverdueNumbers,
+  generateNumbers,
+  type GeneratedCombination,
 } from "@/lib/lottery";
 
 interface LotteryViewProps {
@@ -51,7 +53,10 @@ export default function LotteryView({
   numbersCount,
   draws,
 }: LotteryViewProps) {
-  const [activeTab, setActiveTab] = useState<"frecuencias" | "calientes" | "atrasados" | "coocurrencia">("frecuencias");
+  const [activeTab, setActiveTab] = useState<"frecuencias" | "calientes" | "atrasados" | "coocurrencia" | "generar">("frecuencias");
+  const [generated, setGenerated] = useState<GeneratedCombination | null>(null);
+  const [genStrategy, setGenStrategy] = useState<"frecuencia" | "atrasados" | "mixto" | "aleatorio">("mixto");
+  const [isGenerating, setIsGenerating] = useState(false);
   const colors = colorClasses[color];
 
   const frequencies = useMemo(
@@ -73,6 +78,16 @@ export default function LotteryView({
     () => calculateCooccurrence(draws, minNumber, maxNumber),
     [draws, minNumber, maxNumber]
   );
+
+  function handleGenerate() {
+    setIsGenerating(true);
+    // Pequeña demora para efecto visual
+    setTimeout(() => {
+      const result = generateNumbers(draws, minNumber, maxNumber, numbersCount, genStrategy);
+      setGenerated(result);
+      setIsGenerating(false);
+    }, 500);
+  }
 
   return (
     <div className="space-y-8">
@@ -127,8 +142,8 @@ export default function LotteryView({
       )}
 
       {/* Tabs de análisis */}
-      <div className="flex gap-2 border-b border-gray-700 pb-2">
-        {(["frecuencias", "calientes", "atrasados", "coocurrencia"] as const).map((tab) => (
+      <div className="flex gap-2 border-b border-gray-700 pb-2 flex-wrap">
+        {(["frecuencias", "calientes", "atrasados", "coocurrencia", "generar"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -142,6 +157,7 @@ export default function LotteryView({
             {tab === "calientes" && "Números Calientes"}
             {tab === "atrasados" && "Números Atrasados"}
             {tab === "coocurrencia" && "Coocurrencia"}
+            {tab === "generar" && "Generar Números"}
           </button>
         ))}
       </div>
@@ -273,6 +289,107 @@ export default function LotteryView({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "generar" && (
+        <div className="space-y-6">
+          {/* Selector de estrategia */}
+          <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
+            <h3 className={`text-lg font-semibold ${colors.text} mb-4`}>
+              Generar Números Posibles Ganadores
+            </h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Selecciona una estrategia y genera una combinación basada en el análisis estadístico de los {draws.length} sorteos analizados.
+            </p>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              {[
+                { id: "mixto" as const, name: "Mixto (Recomendado)", desc: "Combina números calientes + atrasados", icon: "🎯" },
+                { id: "frecuencia" as const, name: "Frecuencia", desc: "Números que más salen", icon: "🔥" },
+                { id: "atrasados" as const, name: "Atrasados", desc: "Números que deben salir", icon: "❄️" },
+                { id: "aleatorio" as const, name: "Aleatorio", desc: "Selección al azar", icon: "🎲" },
+              ].map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setGenStrategy(s.id)}
+                  className={`p-4 rounded-lg border text-left transition-all ${
+                    genStrategy === s.id
+                      ? `bg-blue-600/20 border-blue-500 ring-2 ring-blue-500/50`
+                      : "bg-gray-700/50 border-gray-600 hover:border-gray-500"
+                  }`}
+                >
+                  <span className="text-2xl">{s.icon}</span>
+                  <p className="text-sm font-medium text-white mt-2">{s.name}</p>
+                  <p className="text-xs text-gray-400 mt-1">{s.desc}</p>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              className={`px-6 py-3 ${colors.badge} text-white rounded-lg hover:opacity-90 transition-all font-medium disabled:opacity-50`}
+            >
+              {isGenerating ? "Generando..." : "Generar Combinación"}
+            </button>
+          </div>
+
+          {/* Resultado generado */}
+          {generated && (
+            <div className={`bg-gray-800 border ${colors.border} rounded-xl p-6`}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">
+                  Números Generados — Estrategia: {generated.strategy}
+                </h3>
+                <span className="text-sm text-green-400 bg-green-500/10 px-3 py-1 rounded-full">
+                  Confianza: {(generated.confidence * 100).toFixed(0)}%
+                </span>
+              </div>
+
+              {/* Números grandes */}
+              <div className="flex gap-4 justify-center my-6">
+                {generated.numbers.map((num, i) => (
+                  <div
+                    key={i}
+                    className={`w-16 h-16 ${colors.badge} rounded-full flex items-center justify-center shadow-lg`}
+                  >
+                    <span className="text-white font-bold text-2xl">{num}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Razones */}
+              <div className="bg-gray-700/50 rounded-lg p-4 mt-4">
+                <p className="text-sm text-gray-400 mb-2">Por qué estos números:</p>
+                <ul className="space-y-1">
+                  {generated.reasons.map((reason, i) => (
+                    <li key={i} className="text-sm text-white flex items-center gap-2">
+                      <span className="text-green-400">✓</span> {reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Botón regenerar */}
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                className="mt-4 px-4 py-2 bg-gray-700 text-gray-300 rounded-lg hover:bg-gray-600 transition-colors text-sm"
+              >
+                Generar otra combinación
+              </button>
+            </div>
+          )}
+
+          {/* Disclaimer */}
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+            <p className="text-sm text-yellow-400">
+              ⚠️ <strong>Aviso:</strong> Estos números son generados basándose en análisis estadístico histórico.
+              La lotería es un juego de azar y ningún método garantiza resultados.
+              Juega responsablemente.
+            </p>
           </div>
         </div>
       )}

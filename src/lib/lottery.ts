@@ -231,3 +231,116 @@ export function findHotNumbers(
     .sort((a, b) => b.absoluteFrequency - a.absoluteFrequency)
     .slice(0, limit);
 }
+
+// =============================================
+// GENERADOR DE NÚMEROS GANADORES
+// =============================================
+
+export interface GeneratedCombination {
+  numbers: number[];
+  strategy: string;
+  confidence: number;
+  reasons: string[];
+}
+
+/**
+ * Genera combinaciones de números basadas en análisis estadístico.
+ * Estrategias: frecuencia, atrasados, mixto, coocurrencia.
+ */
+export function generateNumbers(
+  draws: LotteryDraw[],
+  minNumber: number,
+  maxNumber: number,
+  count: number,
+  strategy: "frecuencia" | "atrasados" | "mixto" | "aleatorio" = "mixto"
+): GeneratedCombination {
+  const frequencies = calculateFrequencies(draws, minNumber, maxNumber);
+  const hotNumbers = findHotNumbers(draws, minNumber, maxNumber, 15);
+  const overdueNumbers = findOverdueNumbers(draws, minNumber, maxNumber, 15);
+
+  let selected: number[] = [];
+  let reasons: string[] = [];
+  let confidence = 0;
+
+  if (strategy === "frecuencia") {
+    // Pesos basados en frecuencia absoluta
+    const weights = frequencies.map((f) => ({
+      number: f.number,
+      weight: f.absoluteFrequency,
+    }));
+    selected = weightedPick(weights, count);
+    reasons = ["Basado en números que más salen históricamente"];
+    confidence = 0.65;
+  } else if (strategy === "atrasados") {
+    // Números que llevan más sorteos sin salir
+    selected = overdueNumbers.slice(0, count).map((f) => f.number);
+    reasons = ["Basado en números atrasados que deberían salir pronto"];
+    confidence = 0.55;
+  } else if (strategy === "mixto") {
+    // Combina calientes (60%) + atrasados (40%)
+    const hotPool = hotNumbers.slice(0, 10);
+    const overduePool = overdueNumbers.slice(0, 10);
+    const hotCount = Math.ceil(count * 0.6);
+    const overdueCount = count - hotCount;
+
+    const hotPicks = weightedPick(
+      hotPool.map((f) => ({ number: f.number, weight: f.absoluteFrequency })),
+      hotCount
+    );
+    const overduePicks = overdueNumbers
+      .slice(0, overdueCount + 3)
+      .map((f) => f.number)
+      .filter((n) => !hotPicks.includes(n))
+      .slice(0, overdueCount);
+
+    selected = [...hotPicks, ...overduePicks].sort((a, b) => a - b);
+    reasons = [
+      `${hotCount} números calientes (frecuentes)`,
+      `${overduePicks.length} números atrasados (deben salir)`,
+    ];
+    confidence = 0.72;
+  } else {
+    // Aleatorio puro
+    const pool = [];
+    for (let i = minNumber; i <= maxNumber; i++) pool.push(i);
+    selected = shuffleArray(pool).slice(0, count).sort((a, b) => a - b);
+    reasons = ["Selección completamente aleatoria"];
+    confidence = 0.40;
+  }
+
+  return { numbers: selected, strategy, confidence, reasons };
+}
+
+function weightedPick(
+  items: { number: number; weight: number }[],
+  count: number
+): number[] {
+  const pool = [...items];
+  const picked: number[] = [];
+
+  for (let i = 0; i < count && pool.length > 0; i++) {
+    const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
+    let random = Math.random() * totalWeight;
+    let idx = 0;
+    for (let j = 0; j < pool.length; j++) {
+      random -= pool[j].weight;
+      if (random <= 0) {
+        idx = j;
+        break;
+      }
+    }
+    picked.push(pool[idx].number);
+    pool.splice(idx, 1);
+  }
+
+  return picked.sort((a, b) => a - b);
+}
+
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
