@@ -1,7 +1,6 @@
 // =============================================
 // LAYOUT DEL DASHBOARD
 // =============================================
-// Sidebar con navegación + header con usuario y logout.
 
 "use client";
 
@@ -18,23 +17,34 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const supabase = createClient();
   const [user, setUser] = useState<User | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then((result: { data: { user: User | null } }) => setUser(result.data.user));
+    setMounted(true);
+    try {
+      const supabase = createClient();
+      supabase.auth.getUser().then((res: { data: { user: User | null } }) => setUser(res.data.user));
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event: string, session: { user: User | null } | null) => {
-      setUser(session?.user ?? null);
-    });
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event: string, session: { user: User | null } | null) => {
+        setUser(session?.user ?? null);
+      });
 
-    return () => subscription.unsubscribe();
+      return () => subscription.unsubscribe();
+    } catch (e) {
+      console.error("Dashboard layout auth error:", e);
+    }
   }, []);
 
   async function handleLogout() {
-    await supabase.auth.signOut();
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error("Logout error:", e);
+    }
     router.push("/login");
     router.refresh();
   }
@@ -46,6 +56,14 @@ export default function DashboardLayout({
     { href: "/historial", label: "Historial", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
     { href: "/analytics", label: "Analytics", icon: "M16 8v8m-4-5v5m-4-2v2m-2 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" },
   ];
+
+  if (!mounted) {
+    return (
+      <div className="flex min-h-screen bg-gray-900 items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-gray-900">
@@ -90,7 +108,7 @@ export default function DashboardLayout({
           <h2 className="text-lg font-semibold text-white">Dashboard</h2>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-400">
-              {user?.email ?? "Cargando..."}
+              {user?.email ?? "Invitado"}
             </span>
             <button
               onClick={handleLogout}

@@ -4,37 +4,67 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const supabase = createClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [connError, setConnError] = useState("");
+
+  useEffect(() => {
+    setMounted(true);
+    // Test Supabase connection
+    try {
+      const supabase = createClient();
+      supabase.auth.getSession().then((res) => {
+        if (res.error) {
+          setConnError(`Error de conexión: ${res.error.message}`);
+        }
+      });
+    } catch (e) {
+      setConnError(`Error al inicializar: ${e instanceof Error ? e.message : "Desconocido"}`);
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
-      setError(error.message);
+      if (error) {
+        setError(error.message);
+        setLoading(false);
+        return;
+      }
+
+      router.push("/deportes");
+      router.refresh();
+    } catch (e) {
+      setError(`Error de conexión: ${e instanceof Error ? e.message : "No se pudo conectar al servidor"}`);
       setLoading(false);
-      return;
     }
+  }
 
-    router.push("/deportes");
-    router.refresh();
+  if (!mounted) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-900">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+      </div>
+    );
   }
 
   return (
@@ -50,6 +80,12 @@ export default function LoginPage() {
               Accede a tu cuenta para ver predicciones
             </p>
           </div>
+
+          {connError && (
+            <div className="bg-yellow-500/10 border border-yellow-500/50 text-yellow-400 px-4 py-3 rounded-lg mb-4 text-sm">
+              {connError}
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-500/10 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg mb-4 text-sm">
