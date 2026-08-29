@@ -1,15 +1,33 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { TEAMS } from "@/config/teams";
 
-interface MatchPrediction {
-  id: string;
+interface Fixture {
+  id: number;
   homeTeam: string;
   awayTeam: string;
+  homeTeamLogo: string;
+  awayTeamLogo: string;
+  date: string;
+  status: string;
+  matchday: number;
+  venue: string;
   league: string;
   leagueId: number;
-  matchDate: string;
+}
+
+interface EnrichedData {
+  homeForm: string;
+  awayForm: string;
+  homePosition: number;
+  awayPosition: number;
+  homePoints: number;
+  awayPoints: number;
+  dataSource: string;
+}
+
+interface MatchPrediction {
+  fixture: Fixture;
   prediction: {
     homeWin: number;
     draw: number;
@@ -18,15 +36,7 @@ interface MatchPrediction {
     expectedAwayGoals: number;
     mostLikelyScore: { home: number; away: number; probability: number };
   };
-  enrichedData?: {
-    homeForm: string;
-    awayForm: string;
-    homePosition: number;
-    awayPosition: number;
-    homePoints: number;
-    awayPoints: number;
-    dataSource: string;
-  };
+  enrichedData?: EnrichedData;
   confidence: number;
 }
 
@@ -34,40 +44,19 @@ interface Quiniela {
   id: string;
   name: string;
   league: string;
-  matches: MatchPrediction[];
+  matches: (MatchPrediction & { result?: string })[];
   createdAt: string;
   potentialWin: string;
 }
 
 const LEAGUES = [
-  { id: 262, name: "Liga MX", apiName: "Liga MX", flag: "🇲🇽" },
-  { id: 140, name: "La Liga", apiName: "La Liga", flag: "🇪🇸" },
-  { id: 39, name: "Premier League", apiName: "Premier League", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
+  { id: 262, name: "Liga MX", flag: "🇲🇽", color: "from-green-600 to-green-800" },
+  { id: 140, name: "La Liga", flag: "🇪🇸", color: "from-orange-600 to-red-700" },
+  { id: 39, name: "Premier League", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", color: "from-purple-600 to-purple-900" },
 ];
 
-const LEAGUE_TEAMS: Record<number, string[]> = {
-  262: [
-    "América", "Cruz Azul", "Guadalajara", "Pumas UNAM",
-    "Tigres UANL", "Monterrey", "León", "Santos Laguna",
-    "Atlas", "Pachuca", "Toluca", "Necaxa",
-    "Mazatlán", "Puebla", "Juárez", "San Luis",
-  ],
-  140: [
-    "Real Madrid", "FC Barcelona", "Atlético Madrid", "Real Sociedad",
-    "Villarreal", "Athletic Club", "Real Betis", "Sevilla FC",
-    "Valencia CF", "Celta Vigo", "Getafe CF", "Osasuna",
-    "Girona FC", "Mallorca", "Las Palmas", "Rayo Vallecano",
-  ],
-  39: [
-    "Manchester City", "Arsenal", "Liverpool", "Manchester United",
-    "Chelsea", "Tottenham Hotspur", "Newcastle United", "Aston Villa",
-    "Brighton", "West Ham United", "Brentford", "Fulham",
-    "Crystal Palace", "Wolves", "Bournemouth", "Everton",
-  ],
-};
-
 function ResultBadge({ result }: { result: string }) {
-  const colors = {
+  const colors: Record<string, string> = {
     "1": "bg-green-600",
     "X": "bg-yellow-500",
     "2": "bg-red-600",
@@ -75,7 +64,7 @@ function ResultBadge({ result }: { result: string }) {
   return (
     <span
       className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm ${
-        colors[result as keyof typeof colors]
+        colors[result] || "bg-gray-400"
       }`}
     >
       {result}
@@ -84,7 +73,7 @@ function ResultBadge({ result }: { result: string }) {
 }
 
 function FormDisplay({ form }: { form: string }) {
-  if (!form) return <span className="text-gray-500">N/A</span>;
+  if (!form) return <span className="text-gray-500 text-xs">N/A</span>;
   return (
     <div className="flex gap-0.5">
       {form.slice(-5).split("").map((r, i) => (
@@ -111,28 +100,50 @@ function MatchCard({
   selectedResult,
 }: {
   match: MatchPrediction;
-  onResultChange: (matchId: string, result: string) => void;
+  onResultChange: (matchId: number, result: string) => void;
   selectedResult: string;
 }) {
+  const { fixture, prediction, enrichedData, confidence } = match;
+
   return (
     <div className="bg-white rounded-xl shadow-md border border-gray-200 overflow-hidden">
-      <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-4 py-2 flex justify-between items-center">
-        <span className="text-sm font-medium">{match.league}</span>
+      <div className={`bg-gradient-to-r ${LEAGUES.find(l => l.id === fixture.leagueId)?.color || "from-gray-600 to-gray-800"} text-white px-4 py-2 flex justify-between items-center`}>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">{fixture.league}</span>
+          {fixture.matchday > 0 && (
+            <span className="text-xs bg-white/20 px-2 py-0.5 rounded">
+              Jornada {fixture.matchday}
+            </span>
+          )}
+        </div>
         <span className="text-xs opacity-80">
-          {new Date(match.matchDate).toLocaleDateString("es-MX")}
+          {new Date(fixture.date).toLocaleDateString("es-MX", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+          })}
         </span>
       </div>
 
       <div className="p-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex-1 text-center">
-            <p className="font-bold text-gray-800">{match.homeTeam}</p>
-            {match.enrichedData && (
+            <div className="flex justify-center mb-2">
+              {fixture.homeTeamLogo ? (
+                <img src={fixture.homeTeamLogo} alt={fixture.homeTeam} className="w-12 h-12 object-contain" />
+              ) : (
+                <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                  <span className="text-lg">⚽</span>
+                </div>
+              )}
+            </div>
+            <p className="font-bold text-gray-800 text-sm">{fixture.homeTeam}</p>
+            {enrichedData && (
               <div className="mt-1">
                 <p className="text-xs text-gray-500">
-                  Pos: #{match.enrichedData.homePosition} | {match.enrichedData.homePoints} pts
+                  #{enrichedData.homePosition} | {enrichedData.homePoints} pts
                 </p>
-                <FormDisplay form={match.enrichedData.homeForm} />
+                <FormDisplay form={enrichedData.homeForm} />
               </div>
             )}
           </div>
@@ -141,19 +152,28 @@ function MatchCard({
             <span className="text-xs text-gray-500 mb-1">VS</span>
             <div className="text-center bg-gray-100 rounded-lg px-3 py-1">
               <span className="text-sm font-bold text-gray-700">
-                {match.prediction.expectedHomeGoals.toFixed(1)} - {match.prediction.expectedAwayGoals.toFixed(1)}
+                {prediction.expectedHomeGoals.toFixed(1)} - {prediction.expectedAwayGoals.toFixed(1)}
               </span>
             </div>
           </div>
 
           <div className="flex-1 text-center">
-            <p className="font-bold text-gray-800">{match.awayTeam}</p>
-            {match.enrichedData && (
+            <div className="flex justify-center mb-2">
+              {fixture.awayTeamLogo ? (
+                <img src={fixture.awayTeamLogo} alt={fixture.awayTeam} className="w-12 h-12 object-contain" />
+              ) : (
+                <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                  <span className="text-lg">⚽</span>
+                </div>
+              )}
+            </div>
+            <p className="font-bold text-gray-800 text-sm">{fixture.awayTeam}</p>
+            {enrichedData && (
               <div className="mt-1">
                 <p className="text-xs text-gray-500">
-                  Pos: #{match.enrichedData.awayPosition} | {match.enrichedData.awayPoints} pts
+                  #{enrichedData.awayPosition} | {enrichedData.awayPoints} pts
                 </p>
-                <FormDisplay form={match.enrichedData.awayForm} />
+                <FormDisplay form={enrichedData.awayForm} />
               </div>
             )}
           </div>
@@ -161,7 +181,7 @@ function MatchCard({
 
         <div className="grid grid-cols-3 gap-2 mb-3">
           <button
-            onClick={() => onResultChange(match.id, "1")}
+            onClick={() => onResultChange(fixture.id, "1")}
             className={`py-2 rounded-lg font-bold transition-all ${
               selectedResult === "1"
                 ? "bg-green-600 text-white shadow-lg scale-105"
@@ -169,10 +189,10 @@ function MatchCard({
             }`}
           >
             1 (Local)
-            <span className="block text-xs font-normal">{(match.prediction.homeWin * 100).toFixed(0)}%</span>
+            <span className="block text-xs font-normal">{(prediction.homeWin * 100).toFixed(0)}%</span>
           </button>
           <button
-            onClick={() => onResultChange(match.id, "X")}
+            onClick={() => onResultChange(fixture.id, "X")}
             className={`py-2 rounded-lg font-bold transition-all ${
               selectedResult === "X"
                 ? "bg-yellow-500 text-white shadow-lg scale-105"
@@ -180,10 +200,10 @@ function MatchCard({
             }`}
           >
             X (Empate)
-            <span className="block text-xs font-normal">{(match.prediction.draw * 100).toFixed(0)}%</span>
+            <span className="block text-xs font-normal">{(prediction.draw * 100).toFixed(0)}%</span>
           </button>
           <button
-            onClick={() => onResultChange(match.id, "2")}
+            onClick={() => onResultChange(fixture.id, "2")}
             className={`py-2 rounded-lg font-bold transition-all ${
               selectedResult === "2"
                 ? "bg-red-600 text-white shadow-lg scale-105"
@@ -191,18 +211,21 @@ function MatchCard({
             }`}
           >
             2 (Visitante)
-            <span className="block text-xs font-normal">{(match.prediction.awayWin * 100).toFixed(0)}%</span>
+            <span className="block text-xs font-normal">{(prediction.awayWin * 100).toFixed(0)}%</span>
           </button>
         </div>
 
         <div className="bg-gray-50 rounded-lg p-3">
           <div className="flex justify-between text-xs text-gray-600">
-            <span>Marcador más probable: {match.prediction.mostLikelyScore.home} - {match.prediction.mostLikelyScore.away}</span>
-            <span className="font-medium text-blue-600">{(match.confidence * 100).toFixed(0)}% confianza</span>
+            <span>Más probable: {prediction.mostLikelyScore.home} - {prediction.mostLikelyScore.away}</span>
+            <span className="font-medium text-blue-600">{(confidence * 100).toFixed(0)}% confianza</span>
           </div>
-          {match.enrichedData && (
+          {fixture.venue && (
+            <div className="mt-1 text-xs text-gray-500">📍 {fixture.venue}</div>
+          )}
+          {enrichedData && (
             <div className="mt-1 text-xs text-gray-500">
-              Fuente: {match.enrichedData.dataSource}
+              Fuente: {enrichedData.dataSource}
             </div>
           )}
         </div>
@@ -212,49 +235,92 @@ function MatchCard({
 }
 
 export default function QuinielasPage() {
-  const [selectedLeague, setSelectedLeague] = useState<number>(262);
-  const [matches, setMatches] = useState<MatchPrediction[]>([]);
-  const [predictions, setPredictions] = useState<Record<string, string>>({});
+  const [selectedLeague, setSelectedLeague] = useState<number | null>(null);
+  const [fixtures, setFixtures] = useState<Fixture[]>([]);
+  const [predictions, setPredictions] = useState<Record<number, MatchPrediction>>({});
+  const [selections, setSelections] = useState<Record<number, string>>({});
   const [quinielas, setQuinielas] = useState<Quiniela[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingPredictions, setLoadingPredictions] = useState(false);
   const [activeTab, setActiveTab] = useState<"generate" | "saved">("generate");
+  const [error, setError] = useState<string | null>(null);
 
-  const generatePredictions = async (leagueId: number) => {
+  // Obtener fixtures reales
+  const fetchFixtures = async (leagueId: number | null) => {
     setLoading(true);
+    setError(null);
     try {
-      const teams = LEAGUE_TEAMS[leagueId] || [];
-      const generatedMatches: MatchPrediction[] = [];
+      const url = leagueId ? `/api/fixtures?league=${leagueId}` : "/api/fixtures?league=all";
+      const res = await fetch(url);
+      const data = await res.json();
+      
+      if (data.success && data.fixtures) {
+        setFixtures(data.fixtures);
+      } else {
+        setFixtures([]);
+        setError("No se encontraron partidos programados");
+      }
+    } catch {
+      setError("Error al cargar partidos");
+      setFixtures([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      for (let i = 0; i < Math.min(teams.length, 16); i += 2) {
-        const homeTeam = teams[i];
-        const awayTeam = teams[i + 1];
-        if (!homeTeam || !awayTeam) continue;
+  // Generar predicciones para los fixtures
+  const generatePredictions = async (fixturesToPredict: Fixture[]) => {
+    setLoadingPredictions(true);
+    const predictionsMap: Record<number, MatchPrediction> = {};
 
-        // Llamar API enriquecida
-        let enrichedData: {
-          homeForm: string;
-          awayForm: string;
-          homePosition: number;
-          awayPosition: number;
-          homePoints: number;
-          awayPoints: number;
-          dataSource: string;
-        } | undefined = undefined;
-        try {
-          const res = await fetch("/api/predictions/enriched", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              homeTeamName: homeTeam,
-              homeTeamId: 0,
-              awayTeamName: awayTeam,
-              awayTeamId: 0,
-              leagueId: leagueId,
-            }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            enrichedData = {
+    for (const fixture of fixturesToPredict) {
+      try {
+        const res = await fetch("/api/predictions/enriched", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            homeTeamName: fixture.homeTeam,
+            homeTeamId: 0,
+            awayTeamName: fixture.awayTeam,
+            awayTeamId: 0,
+            leagueId: fixture.leagueId,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          
+          const homeAttack = data.homeTeam?.attackStrength || 1.0;
+          const awayAttack = data.awayTeam?.attackStrength || 1.0;
+          const homeDefense = data.homeTeam?.defenseStrength || 1.0;
+          const awayDefense = data.awayTeam?.defenseStrength || 1.0;
+
+          const homeWinBase = 0.45 + (homeAttack - awayAttack) * 0.25 + (homeDefense - awayDefense) * 0.1;
+          const awayWinBase = 0.25 + (awayAttack - homeAttack) * 0.2;
+          
+          const homeWin = Math.min(0.80, Math.max(0.15, homeWinBase));
+          const awayWin = Math.min(0.70, Math.max(0.10, awayWinBase));
+          const draw = Math.max(0.10, 1 - homeWin - awayWin);
+
+          const totalGoals = 1.2 + homeAttack * 0.5 + awayAttack * 0.4;
+          const expectedHomeGoals = totalGoals * 0.55;
+          const expectedAwayGoals = totalGoals * 0.45;
+
+          predictionsMap[fixture.id] = {
+            fixture,
+            prediction: {
+              homeWin,
+              draw,
+              awayWin,
+              expectedHomeGoals,
+              expectedAwayGoals,
+              mostLikelyScore: {
+                home: Math.round(expectedHomeGoals),
+                away: Math.round(expectedAwayGoals),
+                probability: Math.max(homeWin, draw, awayWin),
+              },
+            },
+            enrichedData: {
               homeForm: data.homeTeam?.recentForm || "",
               awayForm: data.awayTeam?.recentForm || "",
               homePosition: data.homeTeam?.leaguePosition || 0,
@@ -262,88 +328,61 @@ export default function QuinielasPage() {
               homePoints: data.homeTeam?.points || 0,
               awayPoints: data.awayTeam?.points || 0,
               dataSource: data.homeTeam?.dataSource || "N/A",
-            };
-          }
-        } catch {
-          // Ignorar errores de API
-        }
-
-        // Predicción con datos enriquecidos
-        const homeAttack = enrichedData?.homePosition ? Math.max(0.5, 2 - enrichedData.homePosition * 0.08) : 1.2;
-        const awayAttack = enrichedData?.awayPosition ? Math.max(0.5, 2 - enrichedData.awayPosition * 0.08) : 1.0;
-
-        const homeWinProb = Math.min(0.85, Math.max(0.15, 0.45 + (homeAttack - awayAttack) * 0.3 + 0.1));
-        const awayWinProb = Math.min(0.75, Math.max(0.1, 0.25 + (awayAttack - homeAttack) * 0.2));
-        const drawProb = Math.max(0.1, 1 - homeWinProb - awayWinProb);
-
-        const expectedHomeGoals = 1.2 + homeAttack * 0.6;
-        const expectedAwayGoals = 1.0 + awayAttack * 0.5;
-
-        generatedMatches.push({
-          id: `${leagueId}-${i}`,
-          homeTeam,
-          awayTeam,
-          league: LEAGUES.find((l) => l.id === leagueId)?.name || "",
-          leagueId,
-          matchDate: new Date(Date.now() + (i / 2) * 86400000).toISOString(),
-          prediction: {
-            homeWin: homeWinProb,
-            draw: drawProb,
-            awayWin: awayWinProb,
-            expectedHomeGoals,
-            expectedAwayGoals,
-            mostLikelyScore: {
-              home: Math.round(expectedHomeGoals),
-              away: Math.round(expectedAwayGoals),
-              probability: Math.max(homeWinProb, drawProb, awayWinProb),
             },
-          },
-          enrichedData,
-          confidence: 0.65 + Math.random() * 0.2,
-        });
+            confidence: 0.65 + Math.random() * 0.2,
+          };
+        }
+      } catch {
+        // Ignorar errores individuales
       }
-
-      setMatches(generatedMatches);
-    } catch (error) {
-      console.error("Error generando predicciones:", error);
-    } finally {
-      setLoading(false);
     }
+
+    setPredictions(predictionsMap);
+    setLoadingPredictions(false);
   };
 
   useEffect(() => {
-    generatePredictions(selectedLeague);
+    fetchFixtures(selectedLeague);
   }, [selectedLeague]);
 
-  const handleResultChange = (matchId: string, result: string) => {
-    setPredictions((prev) => ({ ...prev, [matchId]: result }));
+  useEffect(() => {
+    if (fixtures.length > 0) {
+      generatePredictions(fixtures);
+    }
+  }, [fixtures]);
+
+  const handleResultChange = (matchId: number, result: string) => {
+    setSelections((prev) => ({ ...prev, [matchId]: result }));
   };
 
   const saveQuiniela = () => {
-    const selectedMatches = matches.filter((m) => predictions[m.id]);
+    const selectedMatches = Object.values(predictions).filter(
+      (p) => selections[p.fixture.id]
+    );
     if (selectedMatches.length === 0) return;
+
+    const leagueName = selectedLeague
+      ? LEAGUES.find((l) => l.id === selectedLeague)?.name
+      : "Todas las Ligas";
 
     const quiniela: Quiniela = {
       id: Date.now().toString(),
-      name: `Quiniela ${LEAGUES.find((l) => l.id === selectedLeague)?.name}`,
-      league: LEAGUES.find((l) => l.id === selectedLeague)?.name || "",
+      name: `Quiniela ${leagueName}`,
+      league: leagueName || "",
       matches: selectedMatches.map((m) => ({
         ...m,
-        prediction: {
-          ...m.prediction,
-          result: predictions[m.id],
-        },
+        result: selections[m.fixture.id],
       })),
       createdAt: new Date().toISOString(),
       potentialWin: `$${(selectedMatches.length * 1500).toLocaleString()}`,
     };
 
     setQuinielas((prev) => [quiniela, ...prev]);
-    setPredictions({});
+    setSelections({});
     setActiveTab("saved");
   };
 
-  const totalSelected = Object.keys(predictions).length;
+  const totalSelected = Object.keys(selections).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
@@ -353,7 +392,7 @@ export default function QuinielasPage() {
             🎯 Quinielas Deportivas
           </h1>
           <p className="text-blue-200">
-            Predicciones automáticas usando 3 APIs de fútbol
+            Partidos REALES del calendario oficial • Predicciones con 3 APIs
           </p>
           <div className="flex justify-center gap-4 mt-4 text-sm">
             <span className="bg-blue-800/50 text-blue-200 px-3 py-1 rounded-full">
@@ -394,6 +433,16 @@ export default function QuinielasPage() {
         {activeTab === "generate" && (
           <>
             <div className="flex justify-center gap-3 mb-8">
+              <button
+                onClick={() => setSelectedLeague(null)}
+                className={`px-6 py-3 rounded-xl font-medium transition-all ${
+                  selectedLeague === null
+                    ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-xl scale-105"
+                    : "bg-white/10 text-white hover:bg-white/20"
+                }`}
+              >
+                🌐 Todas
+              </button>
               {LEAGUES.map((league) => (
                 <button
                   key={league.id}
@@ -409,27 +458,53 @@ export default function QuinielasPage() {
               ))}
             </div>
 
-            {loading ? (
+            {loading || loadingPredictions ? (
               <div className="text-center py-20">
                 <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
                 <p className="text-white text-lg">
-                  Consultando APIs de fútbol...
+                  {loading ? "Consultando calendario oficial..." : "Generando predicciones..."}
                 </p>
                 <p className="text-blue-300 text-sm mt-2">
-                  API-Football • Football-Data.org • TheSportsDB
+                  API-Football • Football-Data.org
                 </p>
+              </div>
+            ) : error ? (
+              <div className="text-center py-20">
+                <p className="text-red-400 text-lg mb-4">⚠️ {error}</p>
+                <button
+                  onClick={() => fetchFixtures(selectedLeague)}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+                >
+                  Reintentar
+                </button>
+              </div>
+            ) : fixtures.length === 0 ? (
+              <div className="text-center py-20 text-white/60">
+                <p className="text-4xl mb-4">📅</p>
+                <p className="text-lg">No hay partidos programados próximamente</p>
+                <p className="text-sm mt-2">Intenta con otra liga o vuelva a intentar</p>
               </div>
             ) : (
               <>
+                <div className="mb-6 text-center">
+                  <p className="text-blue-200 text-sm">
+                    {fixtures.length} partidos encontrados del calendario oficial
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                  {matches.map((match) => (
-                    <MatchCard
-                      key={match.id}
-                      match={match}
-                      onResultChange={handleResultChange}
-                      selectedResult={predictions[match.id] || ""}
-                    />
-                  ))}
+                  {fixtures.map((fixture) => {
+                    const pred = predictions[fixture.id];
+                    if (!pred) return null;
+                    return (
+                      <MatchCard
+                        key={fixture.id}
+                        match={pred}
+                        onResultChange={handleResultChange}
+                        selectedResult={selections[fixture.id] || ""}
+                      />
+                    );
+                  })}
                 </div>
 
                 {totalSelected > 0 && (
@@ -489,15 +564,15 @@ export default function QuinielasPage() {
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {quiniela.matches.map((match: MatchPrediction & { result?: string }) => (
+                    {quiniela.matches.map((match) => (
                       <div
-                        key={match.id}
+                        key={match.fixture.id}
                         className="bg-white/5 rounded-lg p-3"
                       >
                         <p className="text-white text-sm font-medium truncate">
-                          {match.homeTeam}
+                          {match.fixture.homeTeam}
                         </p>
-                        <p className="text-blue-300 text-xs">vs {match.awayTeam}</p>
+                        <p className="text-blue-300 text-xs">vs {match.fixture.awayTeam}</p>
                         <div className="mt-2">
                           <ResultBadge result={match.result || ""} />
                         </div>
