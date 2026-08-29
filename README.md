@@ -1,36 +1,151 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pronosticador de Apuestas
 
-## Getting Started
+Plataforma web profesional de pronósticos deportivos y análisis estadístico de loterías mexicanas.
 
-First, run the development server:
+## Funcionalidades
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### Deportes
+- **Liga MX** y **La Liga** con datos en tiempo real (API-Football)
+- Clasificaciones, resultados y próximos fixtures
+- Pronósticos de partidos con modelo de Poisson
+- Probabilidades 1X2, goles esperados, marcador más probable
+- Over/Under 2.5, Ambos Anotan (BTTS)
+- Explicación detallada de factores de cada predicción
+
+### Loterías
+- **Melate**, **Revancha** y **Super Lotto**
+- Análisis de frecuencias absolutas y relativas
+- Números calientes y fríos
+- Análisis de co-ocurrencia (qué números salen juntos)
+- Recomendaciones basadas en frecuencia histórica
+
+## Arquitectura
+
+| Capa | Tecnología | Despliegue |
+|------|------------|------------|
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS | Vercel |
+| ML Service | FastAPI, Python 3.11, NumPy | Fly.io |
+| Base de datos | PostgreSQL (Supabase) | Supabase Cloud |
+| Auth | Supabase Auth | Integrado |
+
+## Estructura del proyecto
+
+```
+pronosticador-de-apuestas/
+├── src/
+│   ├── app/                  # App Router
+│   │   ├── (auth)/           # Login, Register
+│   │   ├── (dashboard)/      # Páginas principales
+│   │   │   ├── deportes/     # Liga MX, La Liga
+│   │   │   ├── loteria/     # Melate, Revancha, Super Lotto
+│   │   │   └── predicciones/ # Generador de predicciones
+│   │   └── api/              # API routes
+│   ├── components/           # Componentes React compartidos
+│   ├── config/               # Configuración (equipos, etc.)
+│   ├── lib/                  # Lógica de negocio
+│   │   ├── models/           # Modelos ML (Poisson)
+│   │   ├── supabase/         # Clientes Supabase
+│   │   └── api-football.ts   # Adaptador API-Football
+│   └── types/                # Tipos TypeScript
+├── ml-service/               # FastAPI service
+├── database/                 # Schema SQL + seed
+├── scripts/                  # Scripts de setup
+└── .env.local                # Variables de entorno
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Instalación
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+# Instalar dependencias
+npm install
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Configurar variables de entorno (ver abajo)
+cp .env.example .env.local
 
-## Learn More
+# Ejecutar en desarrollo
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Variables de entorno
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
+SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# API-Football (vía RapidAPI)
+RAPIDAPI_KEY=tu-rapidapi-key
+NEXT_PUBLIC_API_FOOTBALL_BASE_URL=https://api-football-v1.p.rapidapi.com/v3
 
-## Deploy on Vercel
+# ML Service
+NEXT_PUBLIC_ML_SERVICE_URL=https://pronosticador-ml.fly.dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Scripts
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Comando | Descripción |
+|---------|-------------|
+| `npm run dev` | Servidor de desarrollo |
+| `npm run build` | Build de producción |
+| `npm run start` | Iniciar producción |
+| `npm run lint` | Verificar código |
+| `npm run test` | Ejecutar tests |
+| `npm run test:watch` | Tests en watch mode |
+
+## Despliegue
+
+### Vercel (Frontend)
+```bash
+vercel deploy --prod
+```
+
+### Fly.io (ML Service)
+```bash
+cd ml-service
+fly deploy
+```
+
+### Base de datos (Supabase)
+```bash
+node scripts/setup-db.js
+```
+
+## API del ML Service
+
+### Predicción de fútbol
+```bash
+POST https://pronosticador-ml.fly.dev/api/v1/predict
+{
+  "home_team_attack": 1.2,
+  "home_team_defense": 1.0,
+  "away_team_attack": 1.0,
+  "away_team_defense": 1.2
+}
+```
+
+### Generación de lotería
+```bash
+POST https://pronosticador-ml.fly.dev/api/v1/lottery/generate
+{
+  "min_number": 1,
+  "max_number": 56
+}
+```
+
+### Health check
+```bash
+GET https://pronosticador-ml.fly.dev/api/v1/health
+```
+
+## Stack técnico
+
+- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS, Recharts
+- **Backend:** Supabase (PostgreSQL + Auth + Realtime)
+- **ML:** FastAPI, NumPy, Poisson Distribution
+- **Deploy:** Vercel, Fly.io, Supabase Cloud
+- **Testing:** Vitest (23 tests)
+
+## Licencia
+
+Proyecto privado.
