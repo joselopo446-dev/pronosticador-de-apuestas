@@ -12,6 +12,7 @@ import {
   type FDStanding,
 } from "./football-data";
 
+import { getStandings as getApiFootballStandings } from "./api-football";
 import { searchTSDTeam, getTSDTeamForm } from "./thesportsdb";
 
 // =============================================
@@ -144,14 +145,13 @@ async function buildTeamProfile(
     const tsdTeam = await searchTSDTeam(teamName);
     const tsdTeamId = tsdTeam?.idTeam || null;
 
-    // Datos de Football-Data.org
+    // Datos de Football-Data.org (solo ligas europeas)
     const fdCode = mapToFDCompetition(leagueId);
     let fdStanding: FDStanding | null = null;
     let fdForm = { form: "", wins: 0, draws: 0, losses: 0, goalsFor: 0, goalsAgainst: 0 };
 
     if (fdCode) {
       fdStanding = await getFDStandings(fdCode);
-      // Intentar encontrar el equipo por nombre
       if (fdStanding) {
         const teamInTable = fdStanding.table.find(
           (t) =>
@@ -162,6 +162,44 @@ async function buildTeamProfile(
         if (teamInTable) {
           fdForm = await getFDTeamLastForm(teamInTable.team.id, 5);
         }
+      }
+    }
+
+    // Para Liga MX: usar API-Football standings
+    let apiFootballData: { position: number; points: number; played: number; won: number; draw: number; lost: number; goalsFor: number; goalsAgainst: number; goalDifference: number; form: string } | null = null;
+    if (!fdCode && leagueId === 262) {
+      try {
+        const season = new Date().getFullYear();
+        const apiStandings = await getApiFootballStandings(leagueId, season);
+        if (apiStandings && apiStandings.length > 0) {
+          const leagueStanding = apiStandings[0];
+          // standings is Array<Array<...>>
+          if (leagueStanding.standings && leagueStanding.standings.length > 0) {
+            const standingsArray = leagueStanding.standings[0];
+            if (standingsArray) {
+              const teamData = standingsArray.find(
+                (t: { team: { name: string } }) =>
+                  t.team.name.toLowerCase().includes(teamName.toLowerCase())
+              );
+              if (teamData) {
+                apiFootballData = {
+                  position: teamData.rank,
+                  points: teamData.points,
+                  played: teamData.all?.played || 0,
+                  won: teamData.all?.win || 0,
+                  draw: teamData.all?.draw || 0,
+                  lost: teamData.all?.lose || 0,
+                  goalsFor: teamData.all?.goals?.for || 0,
+                  goalsAgainst: teamData.all?.goals?.against || 0,
+                  goalDifference: teamData.goalsDiff || 0,
+                  form: teamData.form || "",
+                };
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Error fetching Liga MX standings:", e);
       }
     }
 
@@ -180,17 +218,18 @@ async function buildTeamProfile(
     const profile: TeamProfile = {
       ...defaultProfile,
       tsdTeamId,
-      recentForm: fdForm.form || defaultProfile.recentForm,
-      recentWins: fdForm.wins,
-      recentDraws: fdForm.draws,
-      recentLosses: fdForm.losses,
-      recentGoalsFor: fdForm.goalsFor,
-      recentGoalsAgainst: fdForm.goalsAgainst,
+      recentForm: fdForm.form || apiFootballData?.form || defaultProfile.recentForm,
+      recentWins: fdForm.wins || apiFootballData?.won || 0,
+      recentDraws: fdForm.draws || apiFootballData?.draw || 0,
+      recentLosses: fdForm.losses || apiFootballData?.lost || 0,
+      recentGoalsFor: fdForm.goalsFor || apiFootballData?.goalsFor || 0,
+      recentGoalsAgainst: fdForm.goalsAgainst || apiFootballData?.goalsAgainst || 0,
       tsdWinRate: tsdForm.winRate,
       tsdAvgGoalsFor: tsdForm.avgGoalsFor,
       tsdAvgGoalsAgainst: tsdForm.avgGoalsAgainst,
       dataSource: [
         fdStanding ? "football-data" : "",
+        apiFootballData ? "api-football" : "",
         tsdTeamId ? "thesportsdb" : "",
       ].filter(Boolean).join("+") || "defaults",
     };
@@ -216,12 +255,30 @@ async function buildTeamProfile(
       }
     }
 
+    // Usar datos de API-Football para Liga MX si están disponibles
+    if (apiFootballData) {
+      profile.leaguePosition = apiFootballData.position;
+      profile.points = apiFootballData.points;
+      profile.played = apiFootballData.played;
+      profile.won = apiFootballData.won;
+      profile.drawn = apiFootballData.draw;
+      profile.lost = apiFootballData.lost;
+      profile.goalsFor = apiFootballData.goalsFor;
+      profile.goalsAgainst = apiFootballData.goalsAgainst;
+      profile.goalDifference = apiFootballData.goalDifference;
+    }
+
     // Calcular métricas
     const totalPlayed = profile.played || 1;
     profile.attackStrength = Math.min(2, (profile.goalsFor / totalPlayed) / 1.5);
     profile.defenseStrength = Math.min(2, 1 - (profile.goalsAgainst / totalPlayed) / 2);
+    
+    // Form rating: usar datos de FD o API-Football
+    const formWins = fdForm.wins || apiFootballData?.won || 0;
+    const formDraws = fdForm.draws || apiFootballData?.draw || 0;
+    const formLosses = fdForm.losses || apiFootballData?.lost || 0;
     profile.formRating =
-      (fdForm.wins * 1 + fdForm.draws * 0.5) / Math.max(fdForm.wins + fdForm.draws + fdForm.losses, 1);
+      (formWins * 1 + formDraws * 0.5) / Math.max(formWins + formDraws + formLosses, 1);
 
     // Calcular home advantage basado en datos
     const homeWinRate = profile.played > 0
