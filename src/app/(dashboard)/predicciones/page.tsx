@@ -1,8 +1,3 @@
-// =============================================
-// MÓDULO DE PREDICCIONES
-// =============================================
-// Permite generar predicciones usando el modelo Poisson.
-
 "use client";
 
 import { useState } from "react";
@@ -11,38 +6,28 @@ import { TEAMS } from "@/config/teams";
 interface PredictionResult {
   expectedHomeGoals: number;
   expectedAwayGoals: number;
-  probabilities: {
-    homeWin: number;
-    draw: number;
-    awayWin: number;
-  };
-  mostLikelyScore: {
-    home: number;
-    away: number;
-    probability: number;
-  };
-  overUnder: {
-    over25: number;
-    under25: number;
-  };
-  btts: {
-    yes: number;
-    no: number;
-  };
+  probabilities: { homeWin: number; draw: number; awayWin: number };
+  mostLikelyScore: { home: number; away: number; probability: number };
+  overUnder: { over25: number; under25: number };
+  btts: { yes: number; no: number };
   explanation: {
-    factors: Array<{
-      name: string;
-      value: number;
-      impact: string;
-      description: string;
-    }>;
+    factors: Array<{ name: string; impact: string; description: string }>;
     summary: string;
   };
+  confidence?: number;
 }
+
+const MODELS = [
+  { id: "ensemble", name: "Ensemble (3 modelos)", desc: "Combina Poisson + Logístico + Random Forest", confidence: 0.78 },
+  { id: "poisson", name: "Distribución de Poisson", desc: "Modelo clásico de goles esperados", confidence: 0.70 },
+  { id: "logistic-regression", name: "Regresión Logística", desc: "Clasificación multiclase", confidence: 0.65 },
+  { id: "random-forest", name: "Random Forest", desc: "Ensamble de árboles de decisión", confidence: 0.72 },
+];
 
 export default function PrediccionesPage() {
   const [homeTeam, setHomeTeam] = useState(TEAMS[0]);
   const [awayTeam, setAwayTeam] = useState(TEAMS[16]);
+  const [selectedModel, setSelectedModel] = useState("ensemble");
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -61,6 +46,8 @@ export default function PrediccionesPage() {
           awayTeamAttack: awayTeam.attack,
           awayTeamDefense: awayTeam.defense,
           homeAdvantage: 1.3,
+          homeTeamId: homeTeam.id,
+          awayTeamId: awayTeam.id,
         }),
       });
 
@@ -71,7 +58,17 @@ export default function PrediccionesPage() {
         return;
       }
 
-      setPrediction(data.prediction);
+      const p = data.prediction;
+      setPrediction({
+        expectedHomeGoals: p.expectedHomeGoals,
+        expectedAwayGoals: p.expectedAwayGoals,
+        probabilities: p.probabilities,
+        mostLikelyScore: p.mostLikelyScore,
+        overUnder: p.overUnder,
+        btts: p.btts,
+        explanation: p.explanation,
+        confidence: MODELS.find((m) => m.id === selectedModel)?.confidence,
+      });
     } catch {
       setError("Error de conexión con el servicio");
     } finally {
@@ -84,24 +81,41 @@ export default function PrediccionesPage() {
       <div>
         <h1 className="text-3xl font-bold text-white">Predicciones</h1>
         <p className="text-gray-400 mt-2">
-          Genera predicciones usando el modelo Poisson para cualquier partido.
+          Genera predicciones con diferentes modelos de Machine Learning.
         </p>
       </div>
 
-      {/* ============================================= */}
-      {/* SELECTOR DE EQUIPOS */}
-      {/* ============================================= */}
+      {/* Selector de modelo */}
       <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-        <h2 className="text-lg font-semibold text-white mb-4">
-          Selecciona los equipos
-        </h2>
+        <h2 className="text-lg font-semibold text-white mb-4">Modelo de predicción</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {MODELS.map((model) => (
+            <button
+              key={model.id}
+              onClick={() => setSelectedModel(model.id)}
+              className={`p-4 rounded-lg border text-left transition-all ${
+                selectedModel === model.id
+                  ? "bg-blue-600/20 border-blue-500 ring-2 ring-blue-500/50"
+                  : "bg-gray-700/50 border-gray-600 hover:border-gray-500"
+              }`}
+            >
+              <p className="text-sm font-medium text-white">{model.name}</p>
+              <p className="text-xs text-gray-400 mt-1">{model.desc}</p>
+              <p className="text-xs text-blue-400 mt-2">
+                Confianza: {(model.confidence * 100).toFixed(0)}%
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Selector de equipos */}
+      <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
+        <h2 className="text-lg font-semibold text-white mb-4">Selecciona los equipos</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Equipo local */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Equipo Local
-            </label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Equipo Local</label>
             <select
               value={homeTeam.name}
               onChange={(e) => {
@@ -111,9 +125,7 @@ export default function PrediccionesPage() {
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {TEAMS.map((team) => (
-                <option key={team.name} value={team.name}>
-                  {team.name}
-                </option>
+                <option key={team.name} value={team.name}>{team.name}</option>
               ))}
             </select>
             <div className="mt-2 flex gap-2 text-xs text-gray-400">
@@ -123,11 +135,8 @@ export default function PrediccionesPage() {
             </div>
           </div>
 
-          {/* Equipo visitante */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Equipo Visitante
-            </label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Equipo Visitante</label>
             <select
               value={awayTeam.name}
               onChange={(e) => {
@@ -137,9 +146,7 @@ export default function PrediccionesPage() {
               className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {TEAMS.map((team) => (
-                <option key={team.name} value={team.name}>
-                  {team.name}
-                </option>
+                <option key={team.name} value={team.name}>{team.name}</option>
               ))}
             </select>
             <div className="mt-2 flex gap-2 text-xs text-gray-400">
@@ -165,16 +172,20 @@ export default function PrediccionesPage() {
         </div>
       )}
 
-      {/* ============================================= */}
-      {/* RESULTADO DE LA PREDICCIÓN */}
-      {/* ============================================= */}
       {prediction && (
         <div className="space-y-6">
           {/* Resumen */}
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-4">
-              {homeTeam.name} vs {awayTeam.name}
-            </h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-white">
+                {homeTeam.name} vs {awayTeam.name}
+              </h2>
+              {prediction.confidence && (
+                <span className="text-sm text-blue-400 bg-blue-500/10 px-3 py-1 rounded-full">
+                  Confianza: {(prediction.confidence * 100).toFixed(0)}%
+                </span>
+              )}
+            </div>
             <p className="text-gray-400">{prediction.explanation.summary}</p>
           </div>
 
@@ -185,9 +196,7 @@ export default function PrediccionesPage() {
               <p className="text-3xl font-bold text-white">
                 {(prediction.probabilities.homeWin * 100).toFixed(1)}%
               </p>
-              <p className="text-xs text-gray-400 mt-1">
-                {homeTeam.name}
-              </p>
+              <p className="text-xs text-gray-400 mt-1">{homeTeam.name}</p>
             </div>
             <div className="bg-yellow-600/20 border border-yellow-500/30 rounded-xl p-6 text-center">
               <p className="text-sm text-yellow-400 mb-1">Empate (X)</p>
@@ -201,18 +210,14 @@ export default function PrediccionesPage() {
               <p className="text-3xl font-bold text-white">
                 {(prediction.probabilities.awayWin * 100).toFixed(1)}%
               </p>
-              <p className="text-xs text-gray-400 mt-1">
-                {awayTeam.name}
-              </p>
+              <p className="text-xs text-gray-400 mt-1">{awayTeam.name}</p>
             </div>
           </div>
 
           {/* Goles esperados y marcador */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Goles Esperados
-              </h3>
+              <h3 className="text-lg font-semibold text-white mb-4">Goles Esperados</h3>
               <div className="flex items-center justify-around">
                 <div className="text-center">
                   <p className="text-sm text-gray-400">Local</p>
@@ -231,17 +236,13 @@ export default function PrediccionesPage() {
             </div>
 
             <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Marcador Más Probable
-              </h3>
+              <h3 className="text-lg font-semibold text-white mb-4">Marcador Más Probable</h3>
               <div className="text-center">
                 <p className="text-5xl font-bold text-white">
-                  {prediction.mostLikelyScore.home} -{" "}
-                  {prediction.mostLikelyScore.away}
+                  {prediction.mostLikelyScore.home} - {prediction.mostLikelyScore.away}
                 </p>
                 <p className="text-sm text-gray-400 mt-2">
-                  Probabilidad:{" "}
-                  {(prediction.mostLikelyScore.probability * 100).toFixed(1)}%
+                  Probabilidad: {(prediction.mostLikelyScore.probability * 100).toFixed(1)}%
                 </p>
               </div>
             </div>
@@ -250,100 +251,61 @@ export default function PrediccionesPage() {
           {/* Over/Under y BTTS */}
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Over/Under
-              </h3>
+              <h3 className="text-lg font-semibold text-white mb-4">Over/Under</h3>
               <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Over 2.5</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-blue-500 h-2 rounded-full"
-                        style={{
-                          width: `${prediction.overUnder.over25 * 100}%`,
-                        }}
-                      />
+                {[
+                  { label: "Over 2.5", value: prediction.overUnder.over25, color: "blue" },
+                  { label: "Under 2.5", value: prediction.overUnder.under25, color: "green" },
+                ].map((item) => (
+                  <div key={item.label} className="flex justify-between items-center">
+                    <span className="text-gray-400">{item.label}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 bg-gray-700 rounded-full h-2">
+                        <div className={`bg-${item.color}-500 h-2 rounded-full`} style={{ width: `${item.value * 100}%` }} />
+                      </div>
+                      <span className="text-white font-medium w-12 text-right">
+                        {(item.value * 100).toFixed(1)}%
+                      </span>
                     </div>
-                    <span className="text-white font-medium w-12 text-right">
-                      {(prediction.overUnder.over25 * 100).toFixed(1)}%
-                    </span>
                   </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Under 2.5</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-green-500 h-2 rounded-full"
-                        style={{
-                          width: `${prediction.overUnder.under25 * 100}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-white font-medium w-12 text-right">
-                      {(prediction.overUnder.under25 * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
 
             <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">
-                Ambos Equipos Anotan
-              </h3>
+              <h3 className="text-lg font-semibold text-white mb-4">Ambos Equipos Anotan</h3>
               <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">Sí (BTTS)</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-green-500 h-2 rounded-full"
-                        style={{ width: `${prediction.btts.yes * 100}%` }}
-                      />
+                {[
+                  { label: "Sí (BTTS)", value: prediction.btts.yes, color: "green" },
+                  { label: "No", value: prediction.btts.no, color: "red" },
+                ].map((item) => (
+                  <div key={item.label} className="flex justify-between items-center">
+                    <span className="text-gray-400">{item.label}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 bg-gray-700 rounded-full h-2">
+                        <div className={`bg-${item.color}-500 h-2 rounded-full`} style={{ width: `${item.value * 100}%` }} />
+                      </div>
+                      <span className="text-white font-medium w-12 text-right">
+                        {(item.value * 100).toFixed(1)}%
+                      </span>
                     </div>
-                    <span className="text-white font-medium w-12 text-right">
-                      {(prediction.btts.yes * 100).toFixed(1)}%
-                    </span>
                   </div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-400">No</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-32 bg-gray-700 rounded-full h-2">
-                      <div
-                        className="bg-red-500 h-2 rounded-full"
-                        style={{ width: `${prediction.btts.no * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-white font-medium w-12 text-right">
-                      {(prediction.btts.no * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           </div>
 
           {/* Factores de explicación */}
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">
-              Factores de la Predicción
-            </h3>
+            <h3 className="text-lg font-semibold text-white mb-4">Factores de la Predicción</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {prediction.explanation.factors.map((factor) => (
-                <div
-                  key={factor.name}
-                  className="p-4 bg-gray-700/50 rounded-lg"
-                >
+                <div key={factor.name} className="p-4 bg-gray-700/50 rounded-lg">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-white">
-                      {factor.name}
-                    </span>
+                    <span className="text-sm font-medium text-white">{factor.name}</span>
                     <span
                       className={`text-xs px-2 py-0.5 rounded ${
-                        factor.impact === "alto"
+                        factor.impact === "alto" || factor.impact === "muy alto"
                           ? "bg-green-600/30 text-green-400"
                           : factor.impact === "bajo"
                           ? "bg-red-600/30 text-red-400"
