@@ -77,7 +77,7 @@ function generateMelateHistory(): LotteryDraw[] {
   const draws: LotteryDraw[] = [];
   const startYear = 2021;
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 500; i++) {
     const drawNum = 2497 - i;
     const mainNumbers = weightedPick(MELATE_FREQ, 6, rng);
     const bonusPool = Array.from({ length: 56 }, (_, n) => n + 1).filter(
@@ -104,7 +104,7 @@ function generateRevanchaHistory(): LotteryDraw[] {
   const draws: LotteryDraw[] = [];
   const startYear = 2021;
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 500; i++) {
     const drawNum = 1856 - i;
     const mainNumbers = weightedPick(MELATE_FREQ, 6, rng);
     const bonusPool = Array.from({ length: 56 }, (_, n) => n + 1).filter(
@@ -131,7 +131,7 @@ function generateSuperLottoHistory(): LotteryDraw[] {
   const draws: LotteryDraw[] = [];
   const startYear = 2021;
 
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 500; i++) {
     const drawNum = 1580 - i;
     const mainNumbers = weightedPick(SUPER_LOTTO_FREQ, 6, rng);
 
