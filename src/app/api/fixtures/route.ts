@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getFDFixtures, COMPETITIONS } from "@/lib/football-data";
+import { searchTSDTeam, getTSDEventsByTeam } from "@/lib/thesportsdb";
 
 const API_FOOTBALL_BASE = process.env.API_FOOTBALL_BASE_URL || "https://api-football-v1.p.rapidapi.com/v3";
 const API_FOOTBALL_KEY = process.env.RAPIDAPI_KEY || "";
@@ -28,53 +29,61 @@ interface Fixture {
   };
 }
 
-// Liga MX: obtiene fixtures de API-Football
+// Liga MX: usa TheSportsDB (gratis, sin rate limit estricto)
+const LIGA_MX_TEAMS = [
+  "América", "Cruz Azul", "Guadalajara", "Pumas UNAM",
+  "Tigres UANL", "Monterrey", "León", "Santos Laguna",
+  "Atlas", "Pachuca", "Toluca", "Necaxa",
+  "Mazatlán", "Puebla", "Juárez", "San Luis",
+];
+
 async function getLigaMXFixtures(): Promise<Fixture[]> {
-  if (!API_FOOTBALL_KEY) {
-    console.warn("[fixtures] API-Football key not configured");
-    return [];
-  }
-
   try {
-    const season = new Date().getFullYear();
-    const url = `${API_FOOTBALL_BASE}/fixtures?league=262&season=${season}&status=NS&next=10`;
-    
-    const res = await fetch(url, {
-      headers: {
-        "x-rapidapi-key": API_FOOTBALL_KEY,
-        "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
-      },
-      next: { revalidate: 1800 },
-    });
+    const season = new Date().getFullYear().toString();
+    const allFixtures: Fixture[] = [];
 
-    if (!res.ok) {
-      console.error(`[fixtures] API-Football Liga MX error: ${res.status}`);
-      return [];
+    // Obtener próximos eventos de cada equipo
+    for (const teamName of LIGA_MX_TEAMS.slice(0, 8)) { // Top 8 equipos
+      try {
+        const team = await searchTSDTeam(teamName);
+        if (!team) continue;
+
+        const events = await getTSDEventsByTeam(team.idTeam, season);
+        
+        // Filtrar solo partidos programados (sin resultado)
+        const upcoming = events.filter((e) => 
+          !e.intHomeScore && !e.intAwayScore && 
+          e.strStatus !== "Match Finished"
+        ).slice(0, 2);
+
+        for (const event of upcoming) {
+          allFixtures.push({
+            id: parseInt(event.idEvent),
+            homeTeam: event.strHomeTeam,
+            awayTeam: event.strAwayTeam,
+            homeTeamLogo: "",
+            awayTeamLogo: "",
+            date: event.dateEvent + (event.strTime ? `T${event.strTime}` : ""),
+            status: "NS",
+            matchday: parseInt(event.strRound) || 0,
+            venue: "",
+            league: "Liga MX",
+            leagueId: 262,
+          });
+        }
+      } catch {
+        // Continuar con el siguiente equipo
+      }
     }
 
-    const data = await res.json();
-    return (data.response || []).map((f: Record<string, unknown>) => {
-      const fixture = f.fixture as Record<string, unknown>;
-      const teams = f.teams as Record<string, Record<string, unknown>>;
-      const league = f.league as Record<string, unknown>;
-      const home = teams.home as Record<string, unknown>;
-      const away = teams.away as Record<string, unknown>;
-      const venue = fixture.venue as Record<string, unknown>;
-      const status = fixture.status as Record<string, unknown>;
-      return {
-        id: fixture.id as number,
-        homeTeam: home.name as string,
-        awayTeam: away.name as string,
-        homeTeamLogo: home.logo as string,
-        awayTeamLogo: away.logo as string,
-        date: fixture.date as string,
-        status: status.short as string,
-        matchday: league.round ? parseInt(String(league.round).replace(/\D/g, "")) || 0 : 0,
-        venue: (venue.name as string) || "",
-        league: "Liga MX",
-        leagueId: 262,
-      };
-    });
+    // Eliminar duplicados por equipos
+    const seen = new Set<string>();
+    return allFixtures.filter((f) => {
+      const key = `${f.homeTeam}-${f.awayTeam}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 10);
   } catch (error) {
     console.error("[fixtures] Error fetching Liga MX:", error);
     return [];
