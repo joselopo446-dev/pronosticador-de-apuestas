@@ -135,8 +135,11 @@ export default function PrediccionesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...input,
-          homeAdvantage: enrichedData.predictionInput?.homeAdvantage || 1.3,
+          homeTeamAttack: input.homeAttack,
+          homeTeamDefense: input.homeDefense,
+          awayTeamAttack: input.awayAttack,
+          awayTeamDefense: input.awayDefense,
+          homeAdvantage: hasValidData ? enrichedData.predictionInput.homeAdvantage : 1.3,
           homeTeamId: homeTeam.id,
           awayTeamId: awayTeam.id,
         }),
