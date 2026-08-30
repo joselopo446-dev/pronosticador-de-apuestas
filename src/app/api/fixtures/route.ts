@@ -28,22 +28,21 @@ interface Fixture {
   };
 }
 
-// Liga MX: usa eventsnext por equipo (eventsnextleague solo devuelve 1)
-// IDs pre-cacheados para evitar search (ahorra requests)
+// Liga MX: IDs pre-cacheados de TheSportsDB (evita búsquedas que gastan rate limit)
 const LIGA_MX_TEAMS_NEXT: Array<{ name: string; id: string }> = [
   { name: "América", id: "134193" },
-  { name: "Cruz Azul", id: "134212" },
+  { name: "Cruz Azul", id: "134196" },
   { name: "Guadalajara", id: "134205" },
-  { name: "Monterrey", id: "134206" },
-  { name: "Tigres UANL", id: "134211" },
-  { name: "Pumas UNAM", id: "134207" },
-  { name: "León", id: "134204" },
-  { name: "Santos Laguna", id: "134208" },
-  { name: "Toluca", id: "134210" },
-  { name: "Pachuca", id: "134209" },
-  { name: "Atlas", id: "134199" },
-  { name: "Puebla", id: "134201" },
-  { name: "Necaxa", id: "134203" },
+  { name: "Monterrey", id: "134198" },
+  { name: "Tigres UANL", id: "134197" },
+  { name: "Pumas UNAM", id: "134201" },
+  { name: "León", id: "134207" },
+  { name: "Santos Laguna", id: "134192" },
+  { name: "Toluca", id: "134204" },
+  { name: "Pachuca", id: "134191" },
+  { name: "Atlas", id: "134195" },
+  { name: "Puebla", id: "134199" },
+  { name: "Necaxa", id: "134194" },
   { name: "San Luis", id: "134202" },
   { name: "Mazatlán", id: "47810" },
   { name: "Juárez", id: "134200" },
