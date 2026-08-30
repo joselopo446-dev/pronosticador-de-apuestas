@@ -29,69 +29,37 @@ interface Fixture {
 }
 
 // Liga MX: IDs pre-cacheados de TheSportsDB (evita búsquedas que gastan rate limit)
-const LIGA_MX_TSD_IDS: Record<string, string> = {
-  "América": "134193",
-  "Cruz Azul": "134212",
-  "Guadalajara": "134205",
-  "Pumas UNAM": "134207",
-  "Tigres UANL": "134211",
-  "Monterrey": "134206",
-  "León": "134204",
-  "Santos Laguna": "134208",
-  "Atlas": "134199",
-  "Pachuca": "134209",
-  "Toluca": "134210",
-  "Necaxa": "134203",
-  "Mazatlán": "47810",
-  "Puebla": "134201",
-  "Juárez": "134200",
-  "San Luis": "134202",
-};
-
+// ID 4350 = Liga MX en TheSportsDB
 async function getLigaMXFixtures(): Promise<Fixture[]> {
   try {
-    const allFixtures: Fixture[] = [];
-    const seenIds = new Set<string>();
+    // Endpoint por liga: solo 1 request para todos los partidos
+    const res = await fetch(
+      "https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=4350",
+      { next: { revalidate: 1800 } }
+    );
+    const data = await res.json();
+    const events = data?.events || [];
 
-    // Solo consultar 4 equipos clave para ahorrar requests
-    const keyTeams = ["América", "Cruz Azul", "Guadalajara", "Monterrey"];
-
-    for (const teamName of keyTeams) {
-      const teamId = LIGA_MX_TSD_IDS[teamName];
-      if (!teamId) continue;
-
-      try {
-        const res = await fetch(
-          `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${teamId}`,
-          { next: { revalidate: 1800 } }
-        );
-        const data = await res.json();
-        const events = data?.events || [];
-
-        for (const event of events) {
-          if (seenIds.has(event.idEvent)) continue;
-          seenIds.add(event.idEvent);
-
-          allFixtures.push({
-            id: parseInt(event.idEvent),
-            homeTeam: event.strHomeTeam,
-            awayTeam: event.strAwayTeam,
-            homeTeamLogo: event.strHomeTeamBadge || "",
-            awayTeamLogo: event.strAwayTeamBadge || "",
-            date: event.dateEvent + (event.strTime ? `T${event.strTime}` : ""),
-            status: "NS",
-            matchday: parseInt(event.intRound) || 0,
-            venue: event.strVenue || "",
-            league: "Liga MX",
-            leagueId: 262,
-          });
-        }
-      } catch {
-        // Continuar con el siguiente equipo
-      }
-    }
-
-    return allFixtures.slice(0, 10);
+    // Filtrar y ordenar por fecha
+    return events
+      .filter((e: Record<string, string>) => e.strStatus === "NS")
+      .sort((a: Record<string, string>, b: Record<string, string>) => 
+        new Date(a.dateEvent).getTime() - new Date(b.dateEvent).getTime()
+      )
+      .slice(0, 10)
+      .map((e: Record<string, string>) => ({
+        id: parseInt(e.idEvent),
+        homeTeam: e.strHomeTeam,
+        awayTeam: e.strAwayTeam,
+        homeTeamLogo: e.strHomeTeamBadge || "",
+        awayTeamLogo: e.strAwayTeamBadge || "",
+        date: e.dateEvent + (e.strTime ? `T${e.strTime}` : ""),
+        status: "NS",
+        matchday: parseInt(e.intRound) || 0,
+        venue: e.strVenue || "",
+        league: "Liga MX",
+        leagueId: 262,
+      }));
   } catch (error) {
     console.error("[fixtures] Error fetching Liga MX:", error);
     return [];
