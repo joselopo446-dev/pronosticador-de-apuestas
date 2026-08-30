@@ -122,7 +122,9 @@ export default function PrediccionesPage() {
       }
 
       // 2. Generar predicción con datos enriquecidos (o defaults)
-      const input = enrichedData.predictionInput || {
+      const ep = enrichedData.predictionInput;
+      const hasValidData = ep && ep.homeAttack > 0 && ep.awayAttack > 0;
+      const input = hasValidData ? ep : {
         homeAttack: homeTeam.attack,
         homeDefense: homeTeam.defense,
         awayAttack: awayTeam.attack,
