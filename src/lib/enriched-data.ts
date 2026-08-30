@@ -130,7 +130,7 @@ async function buildTeamProfile(
     recentLosses: 0,
     recentGoalsFor: 0,
     recentGoalsAgainst: 0,
-    attackStrength: 1.0,
+    attackStrength: 1.2,
     defenseStrength: 1.0,
     formRating: 0.5,
     homeAdvantage: 1.3,

@@ -290,19 +290,24 @@ export default function QuinielasPage() {
         if (res.ok) {
           const data = await res.json();
           
-          const homeAttack = data.homeTeam?.attackStrength || 1.0;
+          // Usar datos de la API o valores por defecto realistas
+          const homeAttack = data.homeTeam?.attackStrength || 1.2;
           const awayAttack = data.awayTeam?.attackStrength || 1.0;
           const homeDefense = data.homeTeam?.defenseStrength || 1.0;
           const awayDefense = data.awayTeam?.defenseStrength || 1.0;
+          const homeForm = data.homeTeam?.formRating || 0.5;
+          const awayForm = data.awayTeam?.formRating || 0.45;
 
-          const homeWinBase = 0.45 + (homeAttack - awayAttack) * 0.25 + (homeDefense - awayDefense) * 0.1;
-          const awayWinBase = 0.25 + (awayAttack - homeAttack) * 0.2;
-          
-          const homeWin = Math.min(0.80, Math.max(0.15, homeWinBase));
-          const awayWin = Math.min(0.70, Math.max(0.10, awayWinBase));
-          const draw = Math.max(0.10, 1 - homeWin - awayWin);
+          // Calcular probabilidades con factores mejorados
+          const formFactor = (homeForm - awayForm) * 0.15;
+          const attackFactor = (homeAttack - awayAttack) * 0.2;
+          const homeAdvantage = 0.08; // Ventaja de local
+            
+          const homeWin = Math.min(0.75, Math.max(0.20, 0.42 + formFactor + attackFactor + homeAdvantage));
+          const awayWin = Math.min(0.65, Math.max(0.15, 0.25 - formFactor - attackFactor + homeAdvantage));
+          const draw = Math.max(0.15, 1 - homeWin - awayWin);
 
-          const totalGoals = 1.2 + homeAttack * 0.5 + awayAttack * 0.4;
+          const totalGoals = 1.3 + homeAttack * 0.4 + awayAttack * 0.3;
           const expectedHomeGoals = totalGoals * 0.55;
           const expectedAwayGoals = totalGoals * 0.45;
 
