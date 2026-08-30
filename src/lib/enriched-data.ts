@@ -270,8 +270,15 @@ async function buildTeamProfile(
 
     // Calcular métricas
     const totalPlayed = profile.played || 1;
-    profile.attackStrength = Math.min(2, (profile.goalsFor / totalPlayed) / 1.5);
-    profile.defenseStrength = Math.min(2, 1 - (profile.goalsAgainst / totalPlayed) / 2);
+    // Si no hay datos de goles, usar valores por defecto
+    if (profile.goalsFor > 0) {
+      profile.attackStrength = Math.min(2, (profile.goalsFor / totalPlayed) / 1.5);
+      profile.defenseStrength = Math.min(2, 1 - (profile.goalsAgainst / totalPlayed) / 2);
+    } else {
+      // Usar TheSportsDB data o defaults
+      profile.attackStrength = tsdForm.avgGoalsFor > 0 ? tsdForm.avgGoalsFor / 1.5 : 1.2;
+      profile.defenseStrength = tsdForm.avgGoalsAgainst > 0 ? 1 - tsdForm.avgGoalsAgainst / 2 : 1.0;
+    }
     
     // Form rating: usar datos de FD o API-Football
     const formWins = fdForm.wins || apiFootballData?.won || 0;
