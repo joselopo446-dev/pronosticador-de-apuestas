@@ -149,6 +149,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const jornada = searchParams.get("jornada");
     const status = searchParams.get("status") || "pending";
+    const showAll = searchParams.get("showAll") === "true";
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -157,9 +158,22 @@ export async function GET(request: NextRequest) {
       .select("*")
       .order("match_date", { ascending: true });
 
-    if (jornada) {
+    // Si no se especifica jornada y no es admin, buscar la jornada actual
+    if (!jornada && !showAll) {
+      // Obtener la jornada más reciente de fixtures
+      const { data: latestFixtures } = await supabase
+        .from("quiniela_predictions")
+        .select("jornada")
+        .order("match_date", { ascending: false })
+        .limit(1);
+
+      if (latestFixtures && latestFixtures.length > 0) {
+        query = query.eq("jornada", latestFixtures[0].jornada);
+      }
+    } else if (jornada) {
       query = query.eq("jornada", jornada);
     }
+
     if (status !== "all") {
       query = query.eq("status", status);
     }

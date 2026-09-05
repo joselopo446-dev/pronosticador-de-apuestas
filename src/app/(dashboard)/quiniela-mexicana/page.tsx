@@ -1,7 +1,8 @@
 // =============================================
-// QUINIELA MEXICANA — UI PROFESIONAL V2
+// QUINIELA MEXICANA — UI PROFESIONAL V3
 // =============================================
-// Predicciones avanzadas con diseño premium
+// Solo muestra jornada actual por defecto
+// Admin puede ver historial completo
 
 "use client";
 
@@ -43,36 +44,57 @@ interface Prediction {
   is_correct?: boolean;
 }
 
+// Secret key para acceder al historial (cambiar por algo más seguro en producción)
+const ADMIN_SECRET = "pronosticador2026";
+
 export default function QuinielaMexicanaPage() {
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [allPredictions, setAllPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
-  const [selectedJornada, setSelectedJornada] = useState<string>("all");
   const [expandedPrediction, setExpandedPrediction] = useState<number | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [selectedJornada, setSelectedJornada] = useState<string>("current");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [fixturesRes, predictionsRes] = await Promise.all([
         fetch("/api/quiniela/fixtures"),
-        fetch("/api/quiniela/predictions?status=all"),
+        fetch(`/api/quiniela/predictions?status=all${isAdmin ? "&showAll=true" : ""}`),
       ]);
       const fixturesData = await fixturesRes.json();
       const predictionsData = await predictionsRes.json();
       if (fixturesData.success) setFixtures(fixturesData.fixtures);
-      if (predictionsData.success) setPredictions(predictionsData.predictions);
+      if (predictionsData.success) {
+        setPredictions(predictionsData.predictions);
+        if (isAdmin) setAllPredictions(predictionsData.predictions);
+      }
     } catch (error) {
       console.error("Error:", error);
     }
     setLoading(false);
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Obtener jornada actual de los fixtures
+  const currentJornada = fixtures.length > 0 ? fixtures[0].jornada : "7";
+
+  // Obtener todas las jornadas disponibles
+  const allJornadas = [...new Set([...predictions.map(p => p.jornada), ...fixtures.map(f => f.jornada)])].sort();
+
+  // Filtrar predicciones según modo
+  const filteredPredictions = isAdmin && selectedJornada !== "current"
+    ? predictions.filter(p => p.jornada === selectedJornada)
+    : predictions.filter(p => p.jornada === currentJornada);
 
   const handleGenerate = async () => {
     if (fixtures.length === 0) {
@@ -84,7 +106,7 @@ export default function QuinielaMexicanaPage() {
     try {
       const jornadas = new Map<string, Fixture[]>();
       for (const fixture of fixtures) {
-        const jornada = fixture.jornada || "N/A";
+        const jornada = fixture.jornada || currentJornada;
         if (!jornadas.has(jornada)) jornadas.set(jornada, []);
         jornadas.get(jornada)!.push(fixture);
       }
@@ -125,6 +147,17 @@ export default function QuinielaMexicanaPage() {
     setChecking(false);
   };
 
+  const handleAdminLogin = () => {
+    if (adminPassword === ADMIN_SECRET) {
+      setIsAdmin(true);
+      setShowAdminLogin(false);
+      setAdminPassword("");
+      setMessage({ type: "success", text: "Modo admin activado. Puedes ver todas las jornadas." });
+    } else {
+      setMessage({ type: "error", text: "Contraseña incorrecta" });
+    }
+  };
+
   const getPredictionLabel = (pred: string) => {
     switch (pred) {
       case "1": return "Local";
@@ -158,30 +191,24 @@ export default function QuinielaMexicanaPage() {
     return "Muy Baja";
   };
 
-  const filteredPredictions = predictions.filter(
-    (p) => selectedJornada === "all" || p.jornada === selectedJornada
-  );
-
-  const jornadas = [...new Set(predictions.map((p) => p.jornada))].sort();
-
   const stats = {
-    total: predictions.length,
-    pending: predictions.filter((p) => p.status === "pending").length,
-    won: predictions.filter((p) => p.status === "won").length,
-    lost: predictions.filter((p) => p.status === "lost").length,
+    total: filteredPredictions.length,
+    pending: filteredPredictions.filter((p) => p.status === "pending").length,
+    won: filteredPredictions.filter((p) => p.status === "won").length,
+    lost: filteredPredictions.filter((p) => p.status === "lost").length,
     accuracy:
-      predictions.filter((p) => p.status !== "pending").length > 0
+      filteredPredictions.filter((p) => p.status !== "pending").length > 0
         ? Math.round(
-            (predictions.filter((p) => p.status === "won").length /
-              predictions.filter((p) => p.status !== "pending").length) *
+            (filteredPredictions.filter((p) => p.status === "won").length /
+              filteredPredictions.filter((p) => p.status !== "pending").length) *
               100
           )
         : 0,
     avgConfidence:
-      predictions.length > 0
+      filteredPredictions.length > 0
         ? Math.round(
-            (predictions.reduce((sum, p) => sum + p.confidence, 0) /
-              predictions.length) *
+            (filteredPredictions.reduce((sum, p) => sum + p.confidence, 0) /
+              filteredPredictions.length) *
               100
           )
         : 0,
@@ -194,7 +221,10 @@ export default function QuinielaMexicanaPage() {
         <div className="absolute inset-0 bg-gradient-to-r from-green-500/5 to-blue-500/5" />
         <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div>
-            <h1 className="text-4xl font-bold text-white mb-2">Quiniela Mexicana</h1>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-4xl font-bold text-white">Quiniela Mexicana</h1>
+              <Badge variant="success">Jornada {currentJornada}</Badge>
+            </div>
             <p className="text-gray-400 text-lg">
               Sistema profesional con Poisson, ELO Rating y análisis multivariable
             </p>
@@ -220,6 +250,73 @@ export default function QuinielaMexicanaPage() {
           </div>
         </div>
       </div>
+
+      {/* Admin Controls */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          {isAdmin ? (
+            <div className="flex items-center gap-4">
+              <Badge variant="success" size="md">Admin Mode</Badge>
+              <select
+                value={selectedJornada}
+                onChange={(e) => setSelectedJornada(e.target.value)}
+                className="bg-gray-800/50 text-white rounded-xl px-4 py-2.5 border border-gray-700/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
+              >
+                <option value="current">Jornada Actual ({currentJornada})</option>
+                {allJornadas.map((j) => (
+                  <option key={j} value={j}>Jornada {j}</option>
+                ))}
+              </select>
+              <Button
+                onClick={() => setIsAdmin(false)}
+                variant="ghost"
+                size="sm"
+              >
+                Salir Admin
+              </Button>
+            </div>
+          ) : (
+            <Button
+              onClick={() => setShowAdminLogin(true)}
+              variant="ghost"
+              size="sm"
+            >
+              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Ver Historial
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Admin Login Modal */}
+      {showAdminLogin && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-white mb-4">Acceso Admin</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Ingresa la contraseña para ver todas las jornadas
+            </p>
+            <input
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              placeholder="Contraseña"
+              className="w-full px-4 py-3 bg-gray-700/50 border border-gray-600/50 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all mb-4"
+              onKeyPress={(e) => e.key === "Enter" && handleAdminLogin()}
+            />
+            <div className="flex gap-3">
+              <Button onClick={handleAdminLogin} variant="primary" fullWidth>
+                Entrar
+              </Button>
+              <Button onClick={() => { setShowAdminLogin(false); setAdminPassword(""); }} variant="secondary" fullWidth>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Message */}
       {message && (
@@ -287,14 +384,19 @@ export default function QuinielaMexicanaPage() {
         />
       </div>
 
-      {/* Próximos Fixtures */}
+      {/* Próximos Fixtures - Solo Jornada Actual */}
       <Card padding="lg">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-semibold text-white">Próximos Partidos</h2>
+            <h2 className="text-xl font-semibold text-white">
+              {isAdmin && selectedJornada !== "current" 
+                ? `Jornada ${selectedJornada}`
+                : `Jornada Actual — ${currentJornada}`
+              }
+            </h2>
             <p className="text-gray-400 text-sm">Liga MX — Temporada 2025</p>
           </div>
-          <Badge variant="info">{fixtures.length} partidos</Badge>
+          <Badge variant="info">{fixtures.filter(f => f.jornada === currentJornada).length} partidos</Badge>
         </div>
         {loading ? (
           <div className="py-12"><LoadingSpinner /></div>
@@ -302,7 +404,10 @@ export default function QuinielaMexicanaPage() {
           <div className="text-center py-12 text-gray-400">No hay fixtures disponibles</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {fixtures.slice(0, 10).map((fixture) => (
+            {(isAdmin && selectedJornada !== "current" 
+              ? fixtures.filter(f => f.jornada === selectedJornada)
+              : fixtures.filter(f => f.jornada === currentJornada)
+            ).map((fixture) => (
               <div
                 key={fixture.id}
                 className="flex items-center justify-between p-4 bg-gray-700/30 rounded-xl border border-gray-600/30 hover:border-gray-500/50 transition-all duration-200"
@@ -315,7 +420,7 @@ export default function QuinielaMexicanaPage() {
                   <div className="bg-gradient-to-r from-gray-600 to-gray-700 px-4 py-1.5 rounded-lg text-sm text-white font-bold shadow-lg">
                     VS
                   </div>
-                  <div className="text-xs text-gray-500 mt-1">J. {fixture.jornada}</div>
+                  <div className="text-xs text-gray-500 mt-1">{fixture.time}</div>
                 </div>
                 <div className="flex-1 text-left">
                   <span className="text-white font-semibold">{fixture.awayTeam}</span>
@@ -326,40 +431,45 @@ export default function QuinielaMexicanaPage() {
         )}
       </Card>
 
-      {/* Filtro */}
-      <div className="flex items-center gap-4">
-        <label className="text-gray-400 text-sm">Filtrar por jornada:</label>
-        <select
-          value={selectedJornada}
-          onChange={(e) => setSelectedJornada(e.target.value)}
-          className="bg-gray-800/50 text-white rounded-xl px-4 py-2.5 border border-gray-700/50 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
-        >
-          <option value="all">Todas</option>
-          {jornadas.map((j) => (
-            <option key={j} value={j}>{j}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* Predicciones */}
+      {/* Predicciones - Solo Jornada Actual */}
       <Card padding="lg">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-semibold text-white">Predicciones Profesionales</h2>
+            <h2 className="text-xl font-semibold text-white">
+              {isAdmin && selectedJornada !== "current"
+                ? `Predicciones Jornada ${selectedJornada}`
+                : `Predicciones Jornada ${currentJornada}`
+              }
+            </h2>
             <p className="text-gray-400 text-sm">Análisis multivariable con 5 modelos</p>
           </div>
           <Badge variant="info">{filteredPredictions.length} predicciones</Badge>
         </div>
         {filteredPredictions.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
-            No hay predicciones. Haz clic en &quot;Generar Predicciones&quot;.
+            {loading ? (
+              <LoadingSpinner />
+            ) : (
+              <>
+                <p className="mb-4">No hay predicciones para esta jornada</p>
+                <Button onClick={handleGenerate} variant="success">
+                  Generar Predicciones
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-6">
             {filteredPredictions.map((pred) => (
               <div
                 key={pred.id}
-                className="bg-gray-700/30 rounded-2xl border border-gray-600/30 overflow-hidden hover:border-gray-500/50 transition-all duration-200"
+                className={`bg-gray-700/30 rounded-2xl border overflow-hidden transition-all duration-200 ${
+                  pred.status === "won"
+                    ? "border-green-500/30"
+                    : pred.status === "lost"
+                    ? "border-red-500/30"
+                    : "border-gray-600/30 hover:border-gray-500/50"
+                }`}
               >
                 {/* Header del partido */}
                 <div className="p-6">
@@ -382,10 +492,32 @@ export default function QuinielaMexicanaPage() {
                       <Badge variant={getConfidenceColor(pred.confidence) as any}>
                         {Math.round(pred.confidence * 100)}% — {getConfidenceLabel(pred.confidence)}
                       </Badge>
-                      {pred.status === "won" && <Badge variant="success">ACERTÓ</Badge>}
-                      {pred.status === "lost" && <Badge variant="danger">FALLÓ</Badge>}
+                      {pred.status === "won" && <Badge variant="success" size="md">ACERTÓ</Badge>}
+                      {pred.status === "lost" && <Badge variant="danger" size="md">FALLÓ</Badge>}
+                      {pred.status === "pending" && <Badge variant="warning" size="md">PENDIENTE</Badge>}
                     </div>
                   </div>
+
+                  {/* Resultado real si ya se jugó */}
+                  {pred.status !== "pending" && (
+                    <div className={`mt-4 p-4 rounded-xl ${
+                      pred.is_correct 
+                        ? "bg-green-500/10 border border-green-500/30" 
+                        : "bg-red-500/10 border border-red-500/30"
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-gray-400">Resultado final:</span>
+                          <span className="text-white font-bold text-lg">
+                            {pred.home_team} {pred.actual_home_goals} - {pred.actual_away_goals} {pred.away_team}
+                          </span>
+                        </div>
+                        <Badge variant={pred.is_correct ? "success" : "danger"} size="md">
+                          {pred.is_correct ? "✓ Pronóstico Correcto" : "✗ Pronóstico Incorrecto"}
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Probabilidades */}
                   <div className="grid grid-cols-3 gap-4 mt-6">
@@ -603,21 +735,6 @@ export default function QuinielaMexicanaPage() {
                         </div>
                       </div>
                     </div>
-
-                    {/* Resultado real */}
-                    {pred.status !== "pending" && (
-                      <div className={`p-4 rounded-xl ${pred.is_correct ? "bg-green-500/10 border border-green-500/30" : "bg-red-500/10 border border-red-500/30"}`}>
-                        <div className="flex items-center justify-between">
-                          <span className="text-gray-400">Resultado real:</span>
-                          <span className="text-white font-bold">
-                            {pred.home_team} {pred.actual_home_goals} - {pred.actual_away_goals} {pred.away_team}
-                          </span>
-                          <Badge variant={pred.is_correct ? "success" : "danger"}>
-                            {pred.is_correct ? "ACERTÓ" : "FALLÓ"}
-                          </Badge>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
