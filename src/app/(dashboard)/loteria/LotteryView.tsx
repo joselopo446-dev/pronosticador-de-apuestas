@@ -62,6 +62,13 @@ export default function LotteryView({
   const [patterns, setPatterns] = useState<PatternAnalysis | null>(null);
   const [backtest, setBacktest] = useState<BacktestSummary | null>(null);
   const [activePatternTab, setActivePatternTab] = useState<"suma" | "parimpar" | "relaciones" | "secuencia">("suma");
+  const [predictionStats, setPredictionStats] = useState<{
+    hotNumbers: number[];
+    coldNumbers: number[];
+    overdueNumbers: number[];
+    avgSum: number;
+    trend: string;
+  } | null>(null);
   const colors = colorClasses[color];
 
   const frequencies = useMemo(
@@ -100,10 +107,35 @@ export default function LotteryView({
 
   function handleGenerate() {
     setIsGenerating(true);
-    // Pequeña demora para efecto visual
-    setTimeout(() => {
-      const result = generateNumbers(draws, minNumber, maxNumber, numbersCount, genStrategy);
-      setGenerated(result);
+    setTimeout(async () => {
+      try {
+        // Usar el nuevo predictor mejorado
+        const { generatePrediction } = await import("@/lib/lottery-predictor");
+        
+        const strategyMap: Record<string, string> = {
+          "frecuencia": "hot-cold",
+          "atrasados": "overdue",
+          "mixto": "ensemble",
+          "aleatorio": "ml",
+        };
+        
+        const result = generatePrediction(slug, strategyMap[genStrategy] || "ensemble", draws);
+        
+        // Convertir al formato esperado
+        const generatedCombo: GeneratedCombination = {
+          numbers: result.numbers,
+          strategy: result.strategies[0] || genStrategy,
+          confidence: result.confidence,
+          reasons: result.factors.map((f) => `${f.name}: ${f.value} — ${f.description}`),
+        };
+        
+        setGenerated(generatedCombo);
+        setPredictionStats(result.statistics);
+      } catch {
+        // Fallback al generador anterior
+        const result = generateNumbers(draws, minNumber, maxNumber, numbersCount, genStrategy);
+        setGenerated(result);
+      }
       setIsGenerating(false);
     }, 500);
   }
@@ -604,6 +636,48 @@ export default function LotteryView({
                   </div>
                 ))}
               </div>
+
+              {/* Estadísticas de predicción mejorada */}
+              {predictionStats && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="bg-gray-700/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-gray-400">Números Calientes</p>
+                    <p className="text-sm font-bold text-green-400 mt-1">
+                      {predictionStats.hotNumbers.slice(0, 5).join(", ")}
+                    </p>
+                  </div>
+                  <div className="bg-gray-700/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-gray-400">Números Fríos</p>
+                    <p className="text-sm font-bold text-blue-400 mt-1">
+                      {predictionStats.coldNumbers.slice(0, 5).join(", ")}
+                    </p>
+                  </div>
+                  <div className="bg-gray-700/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-gray-400">Atrasados</p>
+                    <p className="text-sm font-bold text-yellow-400 mt-1">
+                      {predictionStats.overdueNumbers.slice(0, 5).join(", ")}
+                    </p>
+                  </div>
+                  <div className="bg-gray-700/50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-gray-400">Tendencia</p>
+                    <p className="text-sm font-bold text-white mt-1 capitalize">
+                      {predictionStats.trend}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Suma promedio */}
+              {predictionStats && (
+                <div className="bg-gray-700/30 rounded-lg p-3 mb-4 text-center">
+                  <span className="text-xs text-gray-400">Suma promedio histórica: </span>
+                  <span className="text-sm font-bold text-white">{predictionStats.avgSum}</span>
+                  <span className="text-xs text-gray-400 ml-4">Suma de combinación: </span>
+                  <span className={`text-sm font-bold ${Math.abs(generated.numbers.reduce((a, b) => a + b, 0) - predictionStats.avgSum) < 20 ? "text-green-400" : "text-yellow-400"}`}>
+                    {generated.numbers.reduce((a, b) => a + b, 0)}
+                  </span>
+                </div>
+              )}
 
               {/* Razones */}
               <div className="bg-gray-700/50 rounded-lg p-4 mt-4">
