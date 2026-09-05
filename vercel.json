@@ -9,6 +9,14 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/football/jornadas",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/quiniela/predictions/daily",
+      "schedule": "0 8 * * *"
+    },
+    {
       "path": "/api/lottery/sync",
       "schedule": "0 8 */2 * *"
     },

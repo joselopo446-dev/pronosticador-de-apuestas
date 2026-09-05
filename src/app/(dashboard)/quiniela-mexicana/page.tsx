@@ -64,16 +64,53 @@ export default function QuinielaMexicanaPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [fixturesRes, predictionsRes] = await Promise.all([
-        fetch("/api/quiniela/fixtures"),
-        fetch(`/api/quiniela/predictions?status=all${isAdmin ? "&showAll=true" : ""}`),
+      // Cargar jornadas desde BD
+      const [jornadasRes, predictionsRes] = await Promise.all([
+        fetch("/api/football/jornadas?current=true"),
+        fetch("/api/quiniela/predictions/daily"),
       ]);
-      const fixturesData = await fixturesRes.json();
+      const jornadasData = await jornadasRes.json();
       const predictionsData = await predictionsRes.json();
-      if (fixturesData.success) setFixtures(fixturesData.fixtures);
+
+      if (jornadasData.success && jornadasData.jornadas.length > 0) {
+        // Convertir formato de jornadas a fixtures
+        const currentJornada = jornadasData.jornadas[0];
+        const fixturesFormatted = currentJornada.matches.map((m: any) => ({
+          id: m.id,
+          homeTeam: m.homeTeam,
+          awayTeam: m.awayTeam,
+          date: m.date || "Por definir",
+          time: m.time || "00:00",
+          venue: m.venue || "",
+          jornada: currentJornada.jornada.toString(),
+          status: m.status,
+        }));
+        setFixtures(fixturesFormatted);
+      }
+
       if (predictionsData.success) {
-        setPredictions(predictionsData.predictions);
-        if (isAdmin) setAllPredictions(predictionsData.predictions);
+        const preds = predictionsData.predictions.map((p: any) => ({
+          id: p.id,
+          jornada: p.jornada?.toString() || p.jornada_number?.toString() || "7",
+          match_date: "",
+          match_time: "",
+          home_team: p.home_team,
+          away_team: p.away_team,
+          prediction: p.prediction,
+          confidence: p.confidence,
+          home_win_prob: p.home_win_prob,
+          draw_prob: p.draw_prob,
+          away_win_prob: p.away_win_prob,
+          expected_home_goals: p.expected_home_goals,
+          expected_away_goals: p.expected_away_goals,
+          factor_team_state: p.factor_team_state,
+          factor_history: p.factor_history,
+          factor_form: p.factor_form,
+          factor_context: p.factor_context,
+          status: p.status || "pending",
+        }));
+        setPredictions(preds);
+        if (isAdmin) setAllPredictions(preds);
       }
     } catch (error) {
       console.error("Error:", error);
@@ -97,33 +134,23 @@ export default function QuinielaMexicanaPage() {
     : predictions.filter(p => p.jornada === currentJornada);
 
   const handleGenerate = async () => {
-    if (fixtures.length === 0) {
-      setMessage({ type: "error", text: "No hay fixtures disponibles" });
-      return;
-    }
     setGenerating(true);
     setMessage(null);
     try {
-      const jornadas = new Map<string, Fixture[]>();
-      for (const fixture of fixtures) {
-        const jornada = fixture.jornada || currentJornada;
-        if (!jornadas.has(jornada)) jornadas.set(jornada, []);
-        jornadas.get(jornada)!.push(fixture);
+      const res = await fetch("/api/quiniela/predictions/daily", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: true }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessage({ type: "success", text: data.message || `Generados ${data.total} pronósticos del día` });
+        fetchData();
+      } else {
+        setMessage({ type: "error", text: data.error || "Error generando pronósticos" });
       }
-      let totalGenerated = 0;
-      for (const [jornada, matches] of jornadas) {
-        const res = await fetch("/api/quiniela/predictions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jornada, matches }),
-        });
-        const data = await res.json();
-        if (data.success) totalGenerated += data.generated;
-      }
-      setMessage({ type: "success", text: `Generadas ${totalGenerated} predicciones profesionales` });
-      fetchData();
     } catch (error) {
-      setMessage({ type: "error", text: "Error generando predicciones" });
+      setMessage({ type: "error", text: "Error generando pronósticos" });
     }
     setGenerating(false);
   };
