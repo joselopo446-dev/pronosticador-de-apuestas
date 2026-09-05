@@ -148,7 +148,7 @@ export interface PredictionResult {
     form: { home: number; away: number; weighted_home: number; weighted_away: number };
     h2h: { advantage: number; recent_dominance: number };
     home_away: { home_advantage: number; away_performance: number };
-    context: { urgency: number; importance: number; fatigue: number };
+    context: { urgency: number; importance: number; fatigue: number; momentum: number; psychological: number };
     poisson: { lambda_home: number; lambda_away: number };
     elo: { home: number; away: number; diff: number };
   };
@@ -382,6 +382,233 @@ function calculateELOFromHistory(matches: any[], teamName: string): { elo: numbe
     : 0;
 
   return { elo, last5Change };
+}
+
+// =============================================
+// ANÁLISIS DE PATRONES DE GOLES
+// =============================================
+
+function analyzeGoalPatterns(matches: any[], teamName: string): {
+  firstHalfGoalsPct: number;
+  secondHalfGoalsPct: number;
+  earlyGoalTendency: number;
+  lateGoalTendency: number;
+  goalsWhenLeading: number;
+  goalsWhenTrailing: number;
+  comebackRate: number;
+} {
+  if (matches.length === 0) {
+    return {
+      firstHalfGoalsPct: 0.45,
+      secondHalfGoalsPct: 0.55,
+      earlyGoalTendency: 0.3,
+      lateGoalTendency: 0.25,
+      goalsWhenLeading: 0.6,
+      goalsWhenTrailing: 0.3,
+      comebackRate: 0.2,
+    };
+  }
+
+  let firstHalfGoals = 0;
+  let secondHalfGoals = 0;
+  let totalGoals = 0;
+  let goalsWhenLeading = 0;
+  let goalsWhenTrailing = 0;
+  let comebacks = 0;
+  let trailingMatches = 0;
+
+  for (const match of matches) {
+    const isHome = match.home_team === teamName;
+    const goalsFor = isHome ? match.home_goals : match.away_goals;
+    const goalsAgainst = isHome ? match.away_goals : match.home_goals;
+    
+    // Estimar goles por mitad (40% primero, 60% segundo es típico)
+    const firstHalf = Math.round(goalsFor * 0.4);
+    const secondHalf = goalsFor - firstHalf;
+    
+    firstHalfGoals += firstHalf;
+    secondHalfGoals += secondHalf;
+    totalGoals += goalsFor;
+
+    // Análisis de situación
+    if (goalsFor > goalsAgainst) {
+      goalsWhenLeading += goalsFor;
+    } else if (goalsFor < goalsAgainst) {
+      goalsWhenTrailing += goalsFor;
+      trailingMatches++;
+      if (goalsFor >= goalsAgainst) comebacks++;
+    }
+  }
+
+  return {
+    firstHalfGoalsPct: totalGoals > 0 ? firstHalfGoals / totalGoals : 0.45,
+    secondHalfGoalsPct: totalGoals > 0 ? secondHalfGoals / totalGoals : 0.55,
+    earlyGoalTendency: 0.3, // Típico en Liga MX
+    lateGoalTendency: 0.25,
+    goalsWhenLeading: totalGoals > 0 ? goalsWhenLeading / totalGoals : 0.6,
+    goalsWhenTrailing: totalGoals > 0 ? goalsWhenTrailing / totalGoals : 0.3,
+    comebackRate: trailingMatches > 0 ? comebacks / trailingMatches : 0.2,
+  };
+}
+
+// =============================================
+// ANÁLISIS DE MOMENTUM
+// =============================================
+
+function analyzeMomentum(results: string[]): {
+  currentMomentum: number;
+  momentumTrend: string;
+  consistency: number;
+  volatility: number;
+} {
+  if (results.length === 0) {
+    return { currentMomentum: 0, momentumTrend: "stable", consistency: 0.5, volatility: 0.5 };
+  }
+
+  // Calcular momentum con pesos exponenciales
+  let momentum = 0;
+  const weights = results.map((_, i) => Math.pow(0.7, i));
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+  results.forEach((result, i) => {
+    if (result === "W") momentum += 3 * weights[i];
+    else if (result === "D") momentum += 1 * weights[i];
+    else momentum += 0 * weights[i];
+  });
+
+  momentum = momentum / totalWeight;
+
+  // Tendencia del momentum
+  const recentHalf = results.slice(0, Math.floor(results.length / 2));
+  const olderHalf = results.slice(Math.floor(results.length / 2));
+  
+  const recentMomentum = recentHalf.reduce((sum, r) => 
+    sum + (r === "W" ? 3 : r === "D" ? 1 : 0), 0) / (recentHalf.length || 1);
+  const olderMomentum = olderHalf.reduce((sum, r) => 
+    sum + (r === "W" ? 3 : r === "D" ? 1 : 0), 0) / (olderHalf.length || 1);
+
+  let trend = "stable";
+  if (recentMomentum > olderMomentum + 0.5) trend = "improving";
+  else if (recentMomentum < olderMomentum - 0.5) trend = "declining";
+
+  // Consistencia (desviación estándar inversa)
+  const mean = results.reduce((sum, r) => 
+    sum + (r === "W" ? 3 : r === "D" ? 1 : 0), 0) / results.length;
+  const variance = results.reduce((sum, r) => {
+    const val = r === "W" ? 3 : r === "D" ? 1 : 0;
+    return sum + Math.pow(val - mean, 2);
+  }, 0) / results.length;
+  const consistency = 1 - Math.min(1, Math.sqrt(variance) / 3);
+
+  // Volatilidad (cambios de resultado)
+  let changes = 0;
+  for (let i = 1; i < results.length; i++) {
+    if (results[i] !== results[i - 1]) changes++;
+  }
+  const volatility = changes / (results.length - 1 || 1);
+
+  return {
+    currentMomentum: Math.round(momentum * 100) / 100,
+    momentumTrend: trend,
+    consistency: Math.round(consistency * 100) / 100,
+    volatility: Math.round(volatility * 100) / 100,
+  };
+}
+
+// =============================================
+// FACTORES PSICOLÓGICOS
+// =============================================
+
+function analyzePsychologicalFactors(
+  homeState: TeamState | null,
+  awayState: TeamState | null,
+  h2h: HeadToHeadRecord,
+  context: MatchContext
+): {
+  homePsychological: number;
+  awayPsychological: number;
+  pressureFactor: number;
+  confidenceFactor: number;
+} {
+  let homePsych = 1.0;
+  let awayPsych = 1.0;
+
+  // Factor de confianza basado en racha
+  if (homeState) {
+    if (homeState.streak_type === "W" && homeState.streak_count >= 3) {
+      homePsych *= 1.15; // Racha ganadora aumenta confianza
+    } else if (homeState.streak_type === "L" && homeState.streak_count >= 3) {
+      homePsych *= 0.85; // Racha perdedora baja confianza
+    }
+  }
+
+  if (awayState) {
+    if (awayState.streak_type === "W" && awayState.streak_count >= 3) {
+      awayPsych *= 1.12;
+    } else if (awayState.streak_type === "L" && awayState.streak_count >= 3) {
+      awayPsych *= 0.88;
+    }
+  }
+
+  // Factor de presión
+  let pressureFactor = 1.0;
+  if (context.must_win_home) pressureFactor *= 1.1; // Presión adicional
+  if (context.must_win_away) pressureFactor *= 1.08;
+
+  // Factor de confianza en H2H
+  if (h2h.total_matches >= 5) {
+    const homeH2HWins = h2h.last_10_results.filter(r => r === "W").length;
+    if (homeH2HWins >= 3) homePsych *= 1.08;
+    else if (homeH2HWins <= 1) homePsych *= 0.92;
+  }
+
+  return {
+    homePsychological: Math.round(homePsych * 100) / 100,
+    awayPsychological: Math.round(awayPsych * 100) / 100,
+    pressureFactor,
+    confidenceFactor: (homePsych + awayPsych) / 2,
+  };
+}
+
+// =============================================
+// ANÁLISIS DE LOCALÍA AVANZADO
+// =============================================
+
+function analyzeHomeAdvantage(
+  homeState: TeamState | null,
+  awayState: TeamState | null,
+  homeAdvanced: AdvancedStats,
+  awayAdvanced: AdvancedStats
+): {
+  homeAdvantageFactor: number;
+  awayDisadvantageFactor: number;
+  homeWinPctAtHome: number;
+  awayWinPctAway: number;
+} {
+  // Calcular porcentajes de victoria
+  let homeWinPct = 0.45; // Default Liga MX
+  let awayWinPct = 0.30; // Default Liga MX
+
+  if (homeState && homeState.home_wins + homeState.home_draws + homeState.home_losses > 0) {
+    const homeTotal = homeState.home_wins + homeState.home_draws + homeState.home_losses;
+    homeWinPct = homeState.home_wins / homeTotal;
+  }
+
+  if (awayState && awayState.away_wins + awayState.away_draws + awayState.away_losses > 0) {
+    const awayTotal = awayState.away_wins + awayState.away_draws + awayState.away_losses;
+    awayWinPct = awayState.away_wins / awayTotal;
+  }
+
+  // Factor de ventaja de localía
+  const homeAdvantageFactor = 1 + (homeWinPct - 0.4) * 0.5;
+  const awayDisadvantageFactor = 1 - (awayWinPct - 0.35) * 0.3;
+
+  return {
+    homeAdvantageFactor: Math.round(homeAdvantageFactor * 100) / 100,
+    awayDisadvantageFactor: Math.round(awayDisadvantageFactor * 100) / 100,
+    homeWinPctAtHome: Math.round(homeWinPct * 100) / 100,
+    awayWinPctAway: Math.round(awayWinPct * 100) / 100,
+  };
 }
 
 // =============================================
@@ -807,7 +1034,7 @@ function contextModel(
 }
 
 // =============================================
-// PREDICCIÓN PRINCIPAL
+// PREDICCIÓN PRINCIPAL (VERSIÓN MEJORADA)
 // =============================================
 
 export async function predictMatch(
@@ -839,6 +1066,30 @@ export async function predictMatch(
   const homeAdvanced = calculateAdvancedStats(homeMatches, homeTeam, homeState);
   const awayAdvanced = calculateAdvancedStats(awayMatches, awayTeam, awayState);
 
+  // Nuevos análisis avanzados
+  const homeGoalPatterns = analyzeGoalPatterns(homeMatches, homeTeam);
+  const awayGoalPatterns = analyzeGoalPatterns(awayMatches, awayTeam);
+  
+  const homeMomentum = analyzeMomentum(
+    homeMatches.map(m => {
+      const isHome = m.home_team === homeTeam;
+      if (m.home_goals > m.away_goals) return isHome ? "W" : "L";
+      if (m.home_goals < m.away_goals) return isHome ? "L" : "W";
+      return "D";
+    })
+  );
+  const awayMomentum = analyzeMomentum(
+    awayMatches.map(m => {
+      const isHome = m.home_team === awayTeam;
+      if (m.home_goals > m.away_goals) return isHome ? "W" : "L";
+      if (m.home_goals < m.away_goals) return isHome ? "L" : "W";
+      return "D";
+    })
+  );
+
+  const psychological = analyzePsychologicalFactors(homeState, awayState, h2h, context);
+  const homeAdvantage = analyzeHomeAdvantage(homeState, awayState, homeAdvanced, awayAdvanced);
+
   // Calcular fuerza de ataque y defensa
   const homeAttack = homeState 
     ? (homeState.avg_goals_scored / LIGA_MX_PARAMS.avg_home_goals) * LIGA_MX_PARAMS.attack_strength_multiplier
@@ -853,13 +1104,13 @@ export async function predictMatch(
     ? (awayState.avg_goals_conceded / LIGA_MX_PARAMS.avg_home_goals) * LIGA_MX_PARAMS.defense_strength_multiplier
     : 1.0;
 
-  // 1. Modelo de Poisson
+  // 1. Modelo de Poisson (ajustado por patrones de goles)
   const poisson = poissonModel(homeAttack, homeDefense, awayAttack, awayDefense, 1.0);
 
   // 2. Modelo ELO
   const elo = eloModel(homeAdvanced.elo_rating, awayAdvanced.elo_rating);
 
-  // 3. Modelo de Forma
+  // 3. Modelo de Forma (ajustado por momentum)
   const homeStreak = homeState ? { type: homeState.streak_type, count: homeState.streak_count } : { type: "", count: 0 };
   const awayStreak = awayState ? { type: awayState.streak_type, count: awayState.streak_count } : { type: "", count: 0 };
   
@@ -875,39 +1126,95 @@ export async function predictMatch(
   // 4. Modelo H2H
   const h2hModelResult = h2hModel(h2h, homeTeam);
 
-  // 5. Modelo de Contexto
+  // 5. Modelo de Contexto (ajustado por psicología y localía)
   const contextModelResult = contextModel(homeState, awayState, homeAdvanced, awayAdvanced, context);
 
-  // Combinar modelos con pesos
-  const homeWinProb = 
-    poisson.homeWinProb * MODEL_WEIGHTS.poisson +
-    elo.homeWinProb * MODEL_WEIGHTS.elo +
-    form.homeWinProb * MODEL_WEIGHTS.form +
-    h2hModelResult.homeWinProb * MODEL_WEIGHTS.h2h +
-    contextModelResult.homeWinProb * MODEL_WEIGHTS.context;
+  // =============================================
+  // MODELO DE ENSEMBLE MEJORADO
+  // =============================================
+  
+  // Pesos adaptativos basados en cantidad de datos
+  const homeDataQuality = homeMatches.length / 30; // 0-1
+  const awayDataQuality = awayMatches.length / 30;
+  const dataQuality = (homeDataQuality + awayDataQuality) / 2;
 
-  const drawProb = 
-    poisson.drawProb * MODEL_WEIGHTS.poisson +
-    elo.drawProb * MODEL_WEIGHTS.elo +
-    form.drawProb * MODEL_WEIGHTS.form +
-    h2hModelResult.drawProb * MODEL_WEIGHTS.h2h +
-    contextModelResult.drawProb * MODEL_WEIGHTS.context;
+  // Ajustar pesos según calidad de datos
+  const adjustedWeights = {
+    poisson: MODEL_WEIGHTS.poisson * (0.8 + dataQuality * 0.4),
+    elo: MODEL_WEIGHTS.elo * (0.9 + dataQuality * 0.2),
+    form: MODEL_WEIGHTS.form * (0.85 + dataQuality * 0.3),
+    h2h: MODEL_WEIGHTS.h2h * (0.7 + dataQuality * 0.6),
+    context: MODEL_WEIGHTS.context,
+  };
 
-  const awayWinProb = 
-    poisson.awayWinProb * MODEL_WEIGHTS.poisson +
-    elo.awayWinProb * MODEL_WEIGHTS.elo +
-    form.awayWinProb * MODEL_WEIGHTS.form +
-    h2hModelResult.awayWinProb * MODEL_WEIGHTS.h2h +
-    contextModelResult.awayWinProb * MODEL_WEIGHTS.context;
+  // Normalizar pesos
+  const totalWeight = Object.values(adjustedWeights).reduce((a, b) => a + b, 0);
+  Object.keys(adjustedWeights).forEach(key => {
+    adjustedWeights[key as keyof typeof adjustedWeights] /= totalWeight;
+  });
 
-  // Normalizar
+  // Combinar modelos
+  let homeWinProb = 
+    poisson.homeWinProb * adjustedWeights.poisson +
+    elo.homeWinProb * adjustedWeights.elo +
+    form.homeWinProb * adjustedWeights.form +
+    h2hModelResult.homeWinProb * adjustedWeights.h2h +
+    contextModelResult.homeWinProb * adjustedWeights.context;
+
+  let drawProb = 
+    poisson.drawProb * adjustedWeights.poisson +
+    elo.drawProb * adjustedWeights.elo +
+    form.drawProb * adjustedWeights.form +
+    h2hModelResult.drawProb * adjustedWeights.h2h +
+    contextModelResult.drawProb * adjustedWeights.context;
+
+  let awayWinProb = 
+    poisson.awayWinProb * adjustedWeights.poisson +
+    elo.awayWinProb * adjustedWeights.elo +
+    form.awayWinProb * adjustedWeights.form +
+    h2hModelResult.awayWinProb * adjustedWeights.h2h +
+    contextModelResult.awayWinProb * adjustedWeights.context;
+
+  // =============================================
+  // AJUSTES FINALES
+  // =============================================
+
+  // Ajuste por momentum
+  const momentumDiff = homeMomentum.currentMomentum - awayMomentum.currentMomentum;
+  homeWinProb += momentumDiff * 0.02;
+  awayWinProb -= momentumDiff * 0.02;
+
+  // Ajuste por factores psicológicos
+  homeWinProb *= psychological.homePsychological;
+  awayWinProb *= psychological.awayPsychological;
+
+  // Ajuste por ventaja de localía
+  homeWinProb *= homeAdvantage.homeAdvantageFactor;
+  awayWinProb *= homeAdvantage.awayDisadvantageFactor;
+
+  // Ajuste por patrones de goles
+  if (homeGoalPatterns.secondHalfGoalsPct > 0.55) {
+    homeWinProb *= 1.03; // Equipo que anota más en segundo tiempo
+  }
+  if (awayGoalPatterns.secondHalfGoalsPct > 0.55) {
+    awayWinProb *= 1.03;
+  }
+
+  // Ajuste por capacidad de comeback
+  if (homeGoalPatterns.comebackRate > 0.3) {
+    homeWinProb *= 1.05; // Buen comeback
+  }
+  if (awayGoalPatterns.comebackRate > 0.3) {
+    awayWinProb *= 1.05;
+  }
+
+  // Normalizar probabilidades
   const total = homeWinProb + drawProb + awayWinProb;
   const normalizedHome = homeWinProb / total;
   const normalizedDraw = drawProb / total;
   const normalizedAway = awayWinProb / total;
 
-  // Calcular confianza
-  const maxProb = Math.max(normalizedHome, normalizedDraw, normalizedAway);
+  // Calcular confianza (entropía normalizada)
   const entropy = -(
     normalizedHome * Math.log2(normalizedHome) +
     normalizedDraw * Math.log2(normalizedDraw) +
@@ -925,17 +1232,17 @@ export async function predictMatch(
   if (normalizedHome > normalizedDraw && normalizedHome > normalizedAway) prediction = "1";
   else if (normalizedAway > normalizedDraw && normalizedAway > normalizedHome) prediction = "2";
 
-  // Calcular goles esperados
-  const expectedHomeGoals = poisson.lambdaHome;
-  const expectedAwayGoals = poisson.lambdaAway;
+  // Calcular goles esperados (ajustados por patrones)
+  const expectedHomeGoals = poisson.lambdaHome * (1 + homeGoalPatterns.goalsWhenLeading * 0.1);
+  const expectedAwayGoals = poisson.lambdaAway * (1 + awayGoalPatterns.goalsWhenLeading * 0.1);
   const expectedTotalGoals = expectedHomeGoals + expectedAwayGoals;
 
   return {
     home_win_prob: Math.round(normalizedHome * 10000) / 10000,
     draw_prob: Math.round(normalizedDraw * 10000) / 10000,
     away_win_prob: Math.round(normalizedAway * 10000) / 10000,
-    expected_home_goals: expectedHomeGoals,
-    expected_away_goals: expectedAwayGoals,
+    expected_home_goals: Math.round(expectedHomeGoals * 100) / 100,
+    expected_away_goals: Math.round(expectedAwayGoals * 100) / 100,
     expected_total_goals: Math.round(expectedTotalGoals * 100) / 100,
     over_1_5_prob: poisson.over15,
     over_2_5_prob: poisson.over25,
@@ -968,13 +1275,15 @@ export async function predictMatch(
         recent_dominance: h2h.last_10_results.filter(r => r === "W").length / (h2h.last_10_results.length || 1),
       },
       home_away: {
-        home_advantage: homeState ? (homeState.home_wins / (homeState.home_wins + homeState.home_draws + homeState.home_losses || 1)) : 0.45,
-        away_performance: awayState ? (awayState.away_wins / (awayState.away_wins + awayState.away_draws + awayState.away_losses || 1)) : 0.35,
+        home_advantage: homeAdvantage.homeWinPctAtHome,
+        away_performance: homeAdvantage.awayWinPctAway,
       },
       context: {
         urgency: context.must_win_home ? 1.2 : context.must_win_away ? 0.8 : 1.0,
         importance: context.match_importance,
         fatigue: (homeAdvanced.fatigue_factor + awayAdvanced.fatigue_factor) / 2,
+        momentum: momentumDiff,
+        psychological: psychological.confidenceFactor,
       },
       poisson: {
         lambda_home: poisson.lambdaHome,

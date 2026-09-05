@@ -14,15 +14,19 @@
     },
     {
       "path": "/api/quiniela/sync-history",
-      "schedule": "0 6 * * 0"
+      "schedule": "0 6 * * 0,3"
     },
     {
       "path": "/api/quiniela/sync-teams",
-      "schedule": "0 7 * * 1"
+      "schedule": "0 7 * * 1,4"
+    },
+    {
+      "path": "/api/quiniela/sync-mass",
+      "schedule": "0 5 * * 0"
     },
     {
       "path": "/api/quiniela/predictions",
-      "schedule": "0 18 * * 3"
+      "schedule": "0 18 * * 3,6"
     },
     {
       "path": "/api/quiniela/check",
