@@ -47,17 +47,28 @@ export async function POST(request: NextRequest) {
       console.log(`Generando predicciones expertas para ${lotteryType}...`);
 
       // Obtener historial de la BD
-      const { data: draws, error: drawsError } = await supabase
+      const { data: drawsRaw, error: drawsError } = await supabase
         .from("lottery_draws")
         .select("*")
         .eq("lottery_id", lotteryId)
         .order("draw_date", { ascending: false })
         .limit(200);
 
-      if (drawsError || !draws || draws.length < 10) {
+      if (drawsError || !drawsRaw || drawsRaw.length < 10) {
         results[lotteryType] = { generated: 0, error: "Datos insuficientes" };
         continue;
       }
+
+      // Transformar datos de Supabase al formato esperado
+      const draws = drawsRaw.map((d: any) => ({
+        id: d.id,
+        lotteryId: d.lottery_id,
+        drawNumber: d.draw_number,
+        drawDate: d.draw_date,
+        mainNumbers: d.main_numbers,
+        bonusNumber: d.bonus_number,
+        jackpotAmount: d.jackpot_amount,
+      }));
 
       // Obtener próximo sorteo
       const { data: lastDraw } = await supabase
