@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       };
 
       // Generar predicción profesional
-      const prediction = await predictMatch(homeTeam, awayTeam, context);
+      const prediction = await predictMatch(homeTeam, awayTeam, "liga-mx", context);
 
       // Guardar en BD
       const { error } = await supabase.from("quiniela_predictions").upsert(

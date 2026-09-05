@@ -170,16 +170,15 @@ const MODEL_WEIGHTS = {
 // Pesos para forma ponderada (decaimiento exponencial)
 const FORM_DECAY = 0.85; // Cada partido anterior pesa 85% menos
 
-// Parámetros de Poisson para Liga MX
-const LIGA_MX_PARAMS = {
-  avg_home_goals: 1.45,
-  avg_away_goals: 1.15,
-  home_advantage: 0.25,
-  attack_strength_multiplier: 1.1,
-  defense_strength_multiplier: 0.9,
+// Parámetros de Poisson por liga
+const LEAGUE_PARAMS: Record<string, { avg_home_goals: number; avg_away_goals: number; home_advantage: number; attack_strength_multiplier: number; defense_strength_multiplier: number }> = {
+  "liga-mx": { avg_home_goals: 1.45, avg_away_goals: 1.15, home_advantage: 0.25, attack_strength_multiplier: 1.1, defense_strength_multiplier: 0.9 },
+  "premier": { avg_home_goals: 1.53, avg_away_goals: 1.25, home_advantage: 0.30, attack_strength_multiplier: 1.15, defense_strength_multiplier: 0.85 },
+  "laliga": { avg_home_goals: 1.48, avg_away_goals: 1.18, home_advantage: 0.28, attack_strength_multiplier: 1.12, defense_strength_multiplier: 0.88 },
 };
+const LIGA_MX_PARAMS = LEAGUE_PARAMS["liga-mx"];
 
-// Rivalidades conocidas (intensidad 0-1)
+// Rivalidades conocidas por liga (intensidad 0-1)
 const RIVALRIES: Record<string, number> = {
   "América-Cruz Azul": 0.98,
   "América-Guadalajara": 0.98,
@@ -199,6 +198,28 @@ const RIVALRIES: Record<string, number> = {
   "Necaxa-América": 0.70,
   "Pumas UNAM-América": 0.85,
   "Monterrey-Cruz Azul": 0.75,
+  // Premier League
+  "Liverpool-Everton": 0.95,
+  "Manchester United-Manchester City": 0.95,
+  "Arsenal-Tottenham": 0.95,
+  "Chelsea-Tottenham": 0.90,
+  "Liverpool-Manchester United": 0.90,
+  "Arsenal-Chelsea": 0.85,
+  "Liverpool-Manchester City": 0.90,
+  "Newcastle-Sunderland": 0.85,
+  "Manchester City-Liverpool": 0.90,
+  "West Ham-Tottenham": 0.80,
+  // La Liga
+  "Real Madrid-Barcelona": 0.99,
+  "Barcelona-Espanyol": 0.90,
+  "Real Madrid-Atletico Madrid": 0.95,
+  "Barcelona-Atletico Madrid": 0.90,
+  "Athletic Bilbao-Real Sociedad": 0.85,
+  "Sevilla-Betis": 0.90,
+  "Valencia-Villarreal": 0.85,
+  "Real Madrid-Valencia": 0.80,
+  "Barcelona-Sevilla": 0.80,
+  "Atletico Madrid-Sevilla": 0.75,
 };
 
 // =============================================
@@ -746,7 +767,8 @@ function poissonModel(
   homeDefense: number,
   awayAttack: number,
   awayDefense: number,
-  homeAdvantage: number
+  homeAdvantage: number,
+  leagueParams: typeof LIGA_MX_PARAMS = LIGA_MX_PARAMS
 ): {
   lambdaHome: number;
   lambdaAway: number;
@@ -766,8 +788,8 @@ function poissonModel(
   likelyScores: Array<{ score: string; prob: number }>;
 } {
   // Calcular lambda (goles esperados) para cada equipo
-  const lambdaHome = homeAttack * LIGA_MX_PARAMS.avg_home_goals * homeAdvantage;
-  const lambdaAway = awayAttack * LIGA_MX_PARAMS.avg_away_goals;
+  const lambdaHome = homeAttack * leagueParams.avg_home_goals * homeAdvantage;
+  const lambdaAway = awayAttack * leagueParams.avg_away_goals;
 
   // Matriz de probabilidades para cada marcador
   const maxGoals = 8;
@@ -1040,19 +1062,23 @@ function contextModel(
 export async function predictMatch(
   homeTeam: string,
   awayTeam: string,
+  league: string = "liga-mx",
   context: MatchContext = {
     is_playoff: false,
     must_win_home: false,
     must_win_away: false,
     home_needs_points: false,
     away_needs_points: false,
-    rivalry_intensity: getRivalry(homeTeam, awayTeam),
+    rivalry_intensity: 0.5,
     match_importance: 0.5,
     home_crowd_factor: 0.7,
     weather_impact: 0,
     referee_strictness: 0.5,
   }
 ): Promise<PredictionResult> {
+  // Parámetros de la liga
+  const leagueParams = LEAGUE_PARAMS[league] || LEAGUE_PARAMS["liga-mx"];
+  
   // Obtener todos los datos
   const [homeState, awayState, h2h, homeMatches, awayMatches] = await Promise.all([
     getTeamState(homeTeam),
@@ -1092,20 +1118,20 @@ export async function predictMatch(
 
   // Calcular fuerza de ataque y defensa
   const homeAttack = homeState 
-    ? (homeState.avg_goals_scored / LIGA_MX_PARAMS.avg_home_goals) * LIGA_MX_PARAMS.attack_strength_multiplier
+    ? (homeState.avg_goals_scored / leagueParams.avg_home_goals) * leagueParams.attack_strength_multiplier
     : 1.0;
   const homeDefense = homeState
-    ? (homeState.avg_goals_conceded / LIGA_MX_PARAMS.avg_away_goals) * LIGA_MX_PARAMS.defense_strength_multiplier
+    ? (homeState.avg_goals_conceded / leagueParams.avg_away_goals) * leagueParams.defense_strength_multiplier
     : 1.0;
   const awayAttack = awayState
-    ? (awayState.avg_goals_scored / LIGA_MX_PARAMS.avg_away_goals) * LIGA_MX_PARAMS.attack_strength_multiplier
+    ? (awayState.avg_goals_scored / leagueParams.avg_away_goals) * leagueParams.attack_strength_multiplier
     : 1.0;
   const awayDefense = awayState
-    ? (awayState.avg_goals_conceded / LIGA_MX_PARAMS.avg_home_goals) * LIGA_MX_PARAMS.defense_strength_multiplier
+    ? (awayState.avg_goals_conceded / leagueParams.avg_home_goals) * leagueParams.defense_strength_multiplier
     : 1.0;
 
   // 1. Modelo de Poisson (ajustado por patrones de goles)
-  const poisson = poissonModel(homeAttack, homeDefense, awayAttack, awayDefense, 1.0);
+  const poisson = poissonModel(homeAttack, homeDefense, awayAttack, awayDefense, 1.0, leagueParams);
 
   // 2. Modelo ELO
   const elo = eloModel(homeAdvanced.elo_rating, awayAdvanced.elo_rating);

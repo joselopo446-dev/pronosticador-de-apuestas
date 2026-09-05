@@ -1,8 +1,8 @@
 // =============================================
-// API — PRONÓSTICOS CACHEADOS (1 VEZ AL DÍA)
+// API — PRONÓSTICOS CACHEADOS MULTI-LIGA
 // =============================================
-// GET /api/quiniela/predictions/daily → Obtiene pronósticos del día
-// POST /api/quiniela/predictions/daily → Genera pronósticos (1 vez al día)
+// GET /api/quiniela/predictions/daily?league=premier
+// POST /api/quiniela/predictions/daily
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -12,20 +12,33 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+const LEAGUE_TABLES: Record<string, string> = {
+  "liga-mx": "liga_mx_jornadas",
+  "premier": "premier_jornadas",
+  "laliga": "laliga_jornadas",
+};
+
+const LEAGUE_RPC: Record<string, string> = {
+  "liga-mx": "get_current_jornada",
+  "premier": "get_current_jornada_by_league",
+  "laliga": "get_current_jornada_by_league",
+};
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const jornada = searchParams.get("jornada");
     const forceGenerate = searchParams.get("force") === "true";
+    const league = searchParams.get("league") || "liga-mx";
 
-    // Fecha de hoy
     const today = new Date().toISOString().split("T")[0];
 
-    // 1. Verificar si ya hay pronósticos para hoy
+    // Buscar predicciones existentes para hoy + liga
     const { data: existingPredictions, error: fetchError } = await supabase
       .from("quiniela_daily_predictions")
       .select("*")
       .eq("prediction_date", today)
+      .eq("league", league)
       .order("match_index", { ascending: true });
 
     if (fetchError) {
@@ -63,12 +76,13 @@ export async function GET(request: NextRequest) {
         total: formatted.length,
         source: "cache_diario",
         date: today,
+        league,
         message: "Pronósticos del día (generados una vez)",
       });
     }
 
-    // 2. Si no hay pronósticos, generarlos
-    return await generateDailyPredictions(today, jornada);
+    // Generar predicciones
+    return await generateDailyPredictions(today, jornada, league);
   } catch (error: any) {
     console.error("Error en GET /api/quiniela/predictions/daily:", error);
     return NextResponse.json(
@@ -81,7 +95,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { jornada, force } = body;
+    const { jornada, force, league: reqLeague } = body;
+    const league = reqLeague || "liga-mx";
 
     const today = new Date().toISOString().split("T")[0];
 
@@ -91,6 +106,7 @@ export async function POST(request: NextRequest) {
         .from("quiniela_daily_predictions")
         .select("id")
         .eq("prediction_date", today)
+        .eq("league", league)
         .limit(1);
 
       if (existing && existing.length > 0) {
@@ -102,7 +118,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return await generateDailyPredictions(today, jornada);
+    return await generateDailyPredictions(today, jornada, league);
   } catch (error: any) {
     console.error("Error en POST /api/quiniela/predictions/daily:", error);
     return NextResponse.json(
@@ -112,18 +128,26 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function generateDailyPredictions(today: string, jornada?: string | null) {
-  // 1. Obtener jornada actual de la BD
+async function generateDailyPredictions(today: string, jornada?: string | null, league: string = "liga-mx") {
+  const table = LEAGUE_TABLES[league] || "liga_mx_jornadas";
+  const rpcName = LEAGUE_RPC[league] || "get_current_jornada";
+
+  // 1. Obtener jornada actual
   let jornadaNumber = jornada ? parseInt(jornada) : null;
 
   if (!jornadaNumber) {
-    const { data: currentJornada } = await supabase.rpc("get_current_jornada");
-    jornadaNumber = currentJornada || 7;
+    if (league === "liga-mx") {
+      const { data: currentJornada } = await supabase.rpc(rpcName);
+      jornadaNumber = currentJornada || 1;
+    } else {
+      const { data: currentJornada } = await supabase.rpc(rpcName, { p_league: league });
+      jornadaNumber = currentJornada || 1;
+    }
   }
 
-  // 2. Obtener partidos de la jornada desde BD
+  // 2. Obtener partidos de la jornada
   const { data: matches, error: matchesError } = await supabase
-    .from("liga_mx_jornadas")
+    .from(table)
     .select("*")
     .eq("jornada_number", jornadaNumber)
     .order("match_index", { ascending: true });
@@ -135,13 +159,12 @@ async function generateDailyPredictions(today: string, jornada?: string | null) 
     );
   }
 
-  // 3. Generar predicciones para cada partido
+  // 3. Generar predicciones
   const predictions: any[] = [];
   const errors: string[] = [];
 
   for (const match of matches) {
     try {
-      // Contexto básico del partido
       const context = {
         is_playoff: false,
         must_win_home: false,
@@ -155,62 +178,52 @@ async function generateDailyPredictions(today: string, jornada?: string | null) 
         referee_strictness: 0.5,
       };
 
-      // Generar predicción
-      const prediction = await predictMatch(match.home_team, match.away_team, context);
+      const prediction = await predictMatch(match.home_team, match.away_team, league, context);
 
-      // Guardar en caché diario
-      const { error: insertError } = await supabase
-        .from("quiniela_daily_predictions")
-        .upsert(
-          {
-            prediction_date: today,
-            jornada_number: match.jornada_number,
-            match_index: match.match_index,
-            home_team: match.home_team,
-            away_team: match.away_team,
-            prediction: prediction.prediction,
-            confidence: prediction.confidence,
-            home_win_prob: prediction.home_win_prob,
-            draw_prob: prediction.draw_prob,
-            away_win_prob: prediction.away_win_prob,
-            expected_home_goals: prediction.expected_home_goals,
-            expected_away_goals: prediction.expected_away_goals,
-            factor_team_state: prediction.factors.team_strength,
-            factor_history: prediction.factors.h2h,
-            factor_form: prediction.factors.form,
-            factor_context: prediction.factors.context,
-            status: "active",
-          },
-          { onConflict: "prediction_date,jornada_number,match_index" }
-        );
-
-      if (insertError) {
-        errors.push(`${match.home_team} vs ${match.away_team}: ${insertError.message}`);
-      } else {
-        predictions.push({
-          id: predictions.length + 1,
-          jornada: match.jornada_number,
-          match_index: match.match_index,
-          home_team: match.home_team,
-          away_team: match.away_team,
-          prediction: prediction.prediction,
-          confidence: prediction.confidence,
-          home_win_prob: prediction.home_win_prob,
-          draw_prob: prediction.draw_prob,
-          away_win_prob: prediction.away_win_prob,
-          expected_home_goals: prediction.expected_home_goals,
-          expected_away_goals: prediction.expected_away_goals,
-          factor_team_state: prediction.factors.team_strength,
-          factor_history: prediction.factors.h2h,
-          factor_form: prediction.factors.form,
-          factor_context: prediction.factors.context,
-          status: "active",
-        });
-      }
-    } catch (e: any) {
-      errors.push(`${match.home_team} vs ${match.away_team}: ${e.message}`);
+      predictions.push({
+        prediction_date: today,
+        jornada_number: jornadaNumber,
+        match_index: match.match_index,
+        home_team: match.home_team,
+        away_team: match.away_team,
+        league,
+        prediction: prediction.prediction,
+        confidence: prediction.confidence,
+        home_win_prob: prediction.home_win_prob,
+        draw_prob: prediction.draw_prob,
+        away_win_prob: prediction.away_win_prob,
+        expected_home_goals: prediction.expected_home_goals,
+        expected_away_goals: prediction.expected_away_goals,
+        factor_team_state: prediction.factors.team_strength,
+        factor_history: prediction.factors.h2h,
+        factor_form: prediction.factors.form,
+        factor_context: prediction.factors.context,
+        status: "pending",
+      });
+    } catch (err: any) {
+      errors.push(`${match.home_team} vs ${match.away_team}: ${err.message}`);
     }
   }
+
+  // 4. Guardar predicciones (upsert)
+  if (predictions.length > 0) {
+    const { error: upsertError } = await supabase
+      .from("quiniela_daily_predictions")
+      .upsert(predictions, {
+        onConflict: "prediction_date,jornada_number,match_index",
+        ignoreDuplicates: false,
+      });
+
+    if (upsertError) {
+      console.error("Error guardando predicciones:", upsertError);
+    }
+  }
+
+  const leagueNames: Record<string, string> = {
+    "liga-mx": "Liga MX",
+    "premier": "Premier League",
+    "laliga": "La Liga",
+  };
 
   return NextResponse.json({
     success: true,
@@ -218,8 +231,7 @@ async function generateDailyPredictions(today: string, jornada?: string | null) 
     total: predictions.length,
     errors,
     jornada: jornadaNumber,
-    date: today,
-    source: "generado_hoy",
-    message: `Pronósticos generados para Jornada ${jornadaNumber} (${predictions.length} partidos)`,
+    league,
+    message: `Pronósticos generados para ${leagueNames[league] || league} - Jornada ${jornadaNumber} (${predictions.length} partidos)`,
   });
 }
