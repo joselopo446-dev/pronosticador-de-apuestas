@@ -29,6 +29,13 @@ import {
   LoadingSpinner,
 } from "@/components/ui";
 
+interface ExpertPrediction {
+  strategy: string;
+  numbers: number[];
+  confidence: number;
+  factors: { name: string; value: string; impact: string; description: string }[];
+}
+
 interface LotteryViewProps {
   name: string;
   slug: string;
@@ -91,6 +98,9 @@ export default function LotteryView({
     avgSum: number;
     trend: string;
   } | null>(null);
+  const [expertPredictions, setExpertPredictions] = useState<ExpertPrediction[]>([]);
+  const [isGeneratingExpert, setIsGeneratingExpert] = useState(false);
+  const [nextDraw, setNextDraw] = useState<{ number: number; date: string } | null>(null);
 
   const colors = colorConfig[color];
 
@@ -730,6 +740,7 @@ export default function LotteryView({
             <div className="mt-8">
               <Button
                 onClick={async () => {
+                  setIsGeneratingExpert(true);
                   try {
                     const res = await fetch("/api/lottery/predictions", {
                       method: "POST",
@@ -737,20 +748,66 @@ export default function LotteryView({
                       body: JSON.stringify({ type: slug, strategy: "ensemble", forceGenerate: true }),
                     });
                     const data = await res.json();
-                    if (data.success) {
-                      alert(`Predicciones expertas generadas para ${name}!`);
+                    if (data.success && data.results?.[slug]?.predictions) {
+                      setExpertPredictions(data.results[slug].predictions);
+                      setNextDraw(data.results[slug].nextDraw || null);
                     }
                   } catch {
                     alert("Error generando predicciones");
+                  } finally {
+                    setIsGeneratingExpert(false);
                   }
                 }}
                 variant="primary"
                 size="lg"
                 fullWidth
               >
-                Generar Predicciones Expertas
+                {isGeneratingExpert ? "Generando..." : "Generar Predicciones Expertas"}
               </Button>
             </div>
+
+            {expertPredictions.length > 0 && (
+              <div className="mt-8 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-lg font-semibold text-white">Predicciones Generadas</h4>
+                  {nextDraw && (
+                    <Badge variant="info">Sorteo #{nextDraw.number}</Badge>
+                  )}
+                </div>
+
+                {expertPredictions.map((pred, idx) => (
+                  <div key={idx} className="p-4 bg-gray-700/30 rounded-xl border border-gray-600/30">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-white font-semibold">{pred.strategy}</span>
+                      <Badge variant={pred.confidence >= 90 ? "success" : pred.confidence >= 80 ? "warning" : "danger"}>
+                        {pred.confidence}% confianza
+                      </Badge>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {pred.numbers.map((num, i) => (
+                        <LotteryNumber key={i} number={num} color={color} size="md" />
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {pred.factors.map((factor, fi) => (
+                        <div key={fi} className="p-2 bg-gray-800/50 rounded-lg">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`w-2 h-2 rounded-full ${
+                              factor.impact === "alto" ? "bg-green-400" :
+                              factor.impact === "medio" ? "bg-yellow-400" : "bg-red-400"
+                            }`} />
+                            <span className="text-xs text-gray-400">{factor.name}</span>
+                          </div>
+                          <p className="text-xs text-gray-300">{factor.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
               <p className="text-sm text-yellow-400">
