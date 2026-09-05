@@ -163,7 +163,7 @@ export default function LotteryView({
           </h2>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-400">
-              {new Date(draws[0].drawDate).toLocaleDateString("es-MX", {
+              {new Date(draws[0].drawDate + "T12:00:00").toLocaleDateString("es-MX", {
                 weekday: "long",
                 year: "numeric",
                 month: "long",
@@ -740,7 +740,7 @@ export default function LotteryView({
                     #{draw.drawNumber}
                   </td>
                   <td className="px-4 py-3 text-gray-400">
-                    {new Date(draw.drawDate).toLocaleDateString("es-MX")}
+                    {new Date(draw.drawDate + "T12:00:00").toLocaleDateString("es-MX")}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
