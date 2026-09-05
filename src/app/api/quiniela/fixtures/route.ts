@@ -1,128 +1,184 @@
 // =============================================
-// API — OBTENER FIXTURES REALES DE LIGA MX
+// API — FIXTURES DE FÚTBOL (CON CACHÉ)
 // =============================================
-// GET /api/quiniela/fixtures → Próximos partidos de Liga MX
+// Lee de caché en Supabase, sincroniza solo si es necesario
+// Reduce llamadas a APIs externas
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  getCachedFixtures,
+  needsSync,
+  canUseAPI,
+  logAPIUsage,
+  syncFixtures,
+  updateSyncStatus,
+} from "@/lib/football-cache";
 
-const TSD_API_KEY = "3";
-const LEAGUE_ID = "4350";
-
-const LIGA_MX_TEAMS: Record<string, string> = {
-  "134193": "América",
-  "134196": "Cruz Azul",
-  "134205": "Guadalajara",
-  "134198": "Monterrey",
-  "134197": "Tigres UANL",
-  "134201": "Pumas UNAM",
-  "134207": "León",
-  "134192": "Santos Laguna",
-  "134204": "Toluca",
-  "134191": "Pachuca",
-  "134195": "Atlas",
-  "134199": "Puebla",
-  "134194": "Necaxa",
-  "134202": "San Luis",
-  "47810": "Mazatlán",
-  "134200": "Juárez",
+// TheSportsDB Liga MX team IDs (para sync bajo demanda)
+const LIGA_MX_TEAMS: Record<string, number> = {
+  América: 134193,
+  "Cruz Azul": 134196,
+  Guadalajara: 134205,
+  Monterrey: 134198,
+  "Tigres UANL": 134197,
+  "Pumas UNAM": 134201,
+  León: 134207,
+  "Santos Laguna": 134192,
+  Toluca: 134204,
+  Pachuca: 134191,
+  Atlas: 134195,
+  Puebla: 134199,
+  Necaxa: 134194,
+  "San Luis": 134202,
+  Mazatlán: 47810,
+  Juárez: 134200,
 };
 
-interface Fixture {
-  id: string;
-  homeTeam: string;
-  awayTeam: string;
-  date: string;
-  time: string;
-  venue: string;
-  jornada: string;
-}
+const THE_SPORTS_DB_LEAGUE_ID = "4350";
 
-async function fetchTeamNextEvents(teamId: string): Promise<any[]> {
-  const url = `https://www.thesportsdb.com/api/v1/json/${TSD_API_KEY}/eventsnext.php?id=${teamId}`;
+export async function GET(request: NextRequest) {
   try {
-    const response = await fetch(url);
-    const data = await response.json();
-    return data.events || [];
-  } catch (error) {
-    console.error(`Error fetching events for team ${teamId}:`, error);
-    return [];
-  }
-}
+    const { searchParams } = new URL(request.url);
+    const jornada = searchParams.get("jornada");
+    const league = searchParams.get("league") || "liga-mx";
+    const forceSync = searchParams.get("forceSync") === "true";
 
-export async function GET() {
-  try {
-    console.log("🔄 Obteniendo fixtures de Liga MX...");
+    // 1. Intentar leer del caché primero
+    const cachedFixtures = await getCachedFixtures(league, jornada || undefined);
 
-    // Obtener próximos eventos de todos los equipos en paralelo
-    const teamIds = Object.keys(LIGA_MX_TEAMS);
-    const allEvents: any[] = [];
+    // 2. Si hay datos en caché, devolverlos
+    if (cachedFixtures.length > 0 && !forceSync) {
+      // Formatear para el frontend
+      const fixtures = cachedFixtures.map((f: any) => ({
+        id: f.fixture_id,
+        homeTeam: f.home_team,
+        awayTeam: f.away_team,
+        date: f.match_date,
+        time: f.match_time,
+        venue: f.venue,
+        jornada: f.jornada,
+        status: f.status,
+        homeGoals: f.home_goals,
+        awayGoals: f.away_goals,
+      }));
 
-    const batches = [];
-    for (let i = 0; i < teamIds.length; i += 4) {
-      batches.push(teamIds.slice(i, i + 4));
-    }
-
-    for (const batch of batches) {
-      const results = await Promise.all(
-        batch.map((teamId) => fetchTeamNextEvents(teamId))
-      );
-      allEvents.push(...results.flat());
-      
-      // Pequeña pausa entre batches
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
-    // Deduplicar por ID de evento
-    const uniqueEvents = new Map<string, any>();
-    for (const event of allEvents) {
-      if (!uniqueEvents.has(event.idEvent)) {
-        uniqueEvents.set(event.idEvent, event);
-      }
-    }
-
-    // Filtrar solo Liga MX y partidos sin resultado
-    const fixtures: Fixture[] = [];
-    
-    for (const event of uniqueEvents.values()) {
-      if (event.idLeague !== LEAGUE_ID) continue;
-      if (event.intHomeScore && event.intAwayScore) continue; // Ya tiene resultado
-
-      const homeTeam = LIGA_MX_TEAMS[event.idHomeTeam] || event.strHomeTeam;
-      const awayTeam = LIGA_MX_TEAMS[event.idAwayTeam] || event.strAwayTeam;
-
-      // Obtener fecha y hora
-      const matchDate = event.dateEvent || "";
-      const matchTime = event.strTime || "00:00:00";
-
-      // Calcular jornada (aproximada por fecha)
-      const jornada = event.strRound || "N/A";
-
-      fixtures.push({
-        id: event.idEvent,
-        homeTeam,
-        awayTeam,
-        date: matchDate,
-        time: matchTime.substring(0, 5), // HH:MM
-        venue: event.strVenue || "Por definir",
-        jornada,
+      return NextResponse.json({
+        success: true,
+        fixtures,
+        total: fixtures.length,
+        source: "cache",
+        timestamp: new Date().toISOString(),
       });
     }
 
-    // Ordenar por fecha
-    fixtures.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    // 3. Si no hay caché o forceSync, sincronizar desde API
+    const needsSyncNow = await needsSync(`fixtures_${league}`, 4);
 
-    console.log(`✅ Encontrados ${fixtures.length} fixtures`);
+    if (needsSyncNow || forceSync) {
+      // Verificar si podemos usar la API
+      const canUse = await canUseAPI("thesportsdb");
+      if (!canUse) {
+        return NextResponse.json({
+          success: true,
+          fixtures: cachedFixtures.map((f: any) => ({
+            id: f.fixture_id,
+            homeTeam: f.home_team,
+            awayTeam: f.away_team,
+            date: f.match_date,
+            time: f.match_time,
+            venue: f.venue,
+            jornada: f.jornada,
+            status: f.status,
+          })),
+          total: cachedFixtures.length,
+          source: "cache (API rate limited)",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Sincronizar desde TheSportsDB
+      await updateSyncStatus(`fixtures_${league}`, "syncing");
+
+      const allFixtures: any[] = [];
+
+      for (const [teamName, teamId] of Object.entries(LIGA_MX_TEAMS)) {
+        try {
+          const response = await fetch(
+            `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${teamId}`
+          );
+          const data = await response.json();
+
+          if (data.events) {
+            for (const event of data.events.slice(0, 3)) {
+              if (event.strLeague === "Liga MX" || event.idLeague === THE_SPORTS_DB_LEAGUE_ID) {
+                allFixtures.push({
+                  id: event.idEvent,
+                  homeTeam: event.strHomeTeam,
+                  awayTeam: event.strAwayTeam,
+                  date: event.dateEvent,
+                  time: event.strTime || "00:00",
+                  venue: event.strVenue || "",
+                  jornada: event.strRound || "",
+                  status: "scheduled",
+                });
+              }
+            }
+          }
+
+          await logAPIUsage("thesportsdb", `eventsnext.php?id=${teamId}`);
+        } catch (e) {
+          console.error(`Error fetching fixtures for ${teamName}:`, e);
+        }
+      }
+
+      // Guardar en caché
+      await syncFixtures(league, "MX1", allFixtures);
+      await updateSyncStatus(`fixtures_${league}`, "completed", allFixtures.length);
+
+      // Devolver datos
+      const fixtures = allFixtures.map((f) => ({
+        id: f.id,
+        homeTeam: f.homeTeam,
+        awayTeam: f.awayTeam,
+        date: f.date,
+        time: f.time,
+        venue: f.venue,
+        jornada: f.jornada,
+        status: f.status,
+      }));
+
+      return NextResponse.json({
+        success: true,
+        fixtures,
+        total: fixtures.length,
+        source: "api",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // 4. Devolver lo que haya en caché
+    const fixtures = cachedFixtures.map((f: any) => ({
+      id: f.fixture_id,
+      homeTeam: f.home_team,
+      awayTeam: f.away_team,
+      date: f.match_date,
+      time: f.match_time,
+      venue: f.venue,
+      jornada: f.jornada,
+      status: f.status,
+    }));
 
     return NextResponse.json({
       success: true,
-      fixtures: fixtures.slice(0, 20), // Máximo 20 partidos
-      source: "TheSportsDB",
+      fixtures,
+      total: fixtures.length,
+      source: "cache",
       timestamp: new Date().toISOString(),
     });
-  } catch (error) {
-    console.error("Error en /api/quiniela/fixtures:", error);
+  } catch (error: any) {
+    console.error("Error en GET /api/quiniela/fixtures:", error);
     return NextResponse.json(
-      { success: false, error: "Error obteniendo fixtures" },
+      { success: false, error: error.message },
       { status: 500 }
     );
   }
