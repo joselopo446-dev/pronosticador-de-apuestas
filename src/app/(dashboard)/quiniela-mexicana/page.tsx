@@ -1,7 +1,7 @@
 // =============================================
-// PÁGINA — QUINIELA MEXICANA
+// PÁGINA — QUINIELA MEXICANA PROFESIONAL
 // =============================================
-// Predicciones de Liga MX basadas en datos históricos reales
+// Predicciones avanzadas con Poisson, ELO, y análisis multivariable
 
 "use client";
 
@@ -34,6 +34,7 @@ interface Prediction {
   factor_team_state: any;
   factor_history: any;
   factor_form: any;
+  factor_context: any;
   status: string;
   actual_result?: string;
   actual_home_goals?: number;
@@ -49,7 +50,7 @@ export default function QuinielaMexicanaPage() {
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedJornada, setSelectedJornada] = useState<string>("all");
-  const [showFactors, setShowFactors] = useState<number | null>(null);
+  const [expandedPrediction, setExpandedPrediction] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -62,14 +63,10 @@ export default function QuinielaMexicanaPage() {
       const fixturesData = await fixturesRes.json();
       const predictionsData = await predictionsRes.json();
 
-      if (fixturesData.success) {
-        setFixtures(fixturesData.fixtures);
-      }
-      if (predictionsData.success) {
-        setPredictions(predictionsData.predictions);
-      }
+      if (fixturesData.success) setFixtures(fixturesData.fixtures);
+      if (predictionsData.success) setPredictions(predictionsData.predictions);
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error("Error:", error);
     }
     setLoading(false);
   }, []);
@@ -88,17 +85,13 @@ export default function QuinielaMexicanaPage() {
     setMessage(null);
 
     try {
-      // Agrupar por jornada
       const jornadas = new Map<string, Fixture[]>();
       for (const fixture of fixtures) {
         const jornada = fixture.jornada || "N/A";
-        if (!jornadas.has(jornada)) {
-          jornadas.set(jornada, []);
-        }
+        if (!jornadas.has(jornada)) jornadas.set(jornada, []);
         jornadas.get(jornada)!.push(fixture);
       }
 
-      // Generar predicciones para cada jornada
       let totalGenerated = 0;
       for (const [jornada, matches] of jornadas) {
         const res = await fetch("/api/quiniela/predictions", {
@@ -107,12 +100,10 @@ export default function QuinielaMexicanaPage() {
           body: JSON.stringify({ jornada, matches }),
         });
         const data = await res.json();
-        if (data.success) {
-          totalGenerated += data.generated;
-        }
+        if (data.success) totalGenerated += data.generated;
       }
 
-      setMessage(`Generadas ${totalGenerated} predicciones nuevas`);
+      setMessage(`Generadas ${totalGenerated} predicciones profesionales`);
       fetchData();
     } catch (error) {
       setMessage("Error generando predicciones");
@@ -134,7 +125,7 @@ export default function QuinielaMexicanaPage() {
         fetchData();
       }
     } catch (error) {
-      setMessage("Error verificando predicciones");
+      setMessage("Error verificando");
     }
     setChecking(false);
   };
@@ -158,10 +149,19 @@ export default function QuinielaMexicanaPage() {
   };
 
   const getConfidenceColor = (conf: number) => {
-    if (conf >= 0.7) return "text-green-400";
-    if (conf >= 0.5) return "text-yellow-400";
+    if (conf >= 0.6) return "text-green-400";
+    if (conf >= 0.5) return "text-blue-400";
+    if (conf >= 0.4) return "text-yellow-400";
     if (conf >= 0.3) return "text-orange-400";
     return "text-red-400";
+  };
+
+  const getConfidenceLabel = (conf: number) => {
+    if (conf >= 0.6) return "Muy Alta";
+    if (conf >= 0.5) return "Alta";
+    if (conf >= 0.4) return "Media";
+    if (conf >= 0.3) return "Baja";
+    return "Muy Baja";
   };
 
   const filteredPredictions = predictions.filter(
@@ -183,6 +183,14 @@ export default function QuinielaMexicanaPage() {
               100
           )
         : 0,
+    avgConfidence:
+      predictions.length > 0
+        ? Math.round(
+            (predictions.reduce((sum, p) => sum + p.confidence, 0) /
+              predictions.length) *
+              100
+          )
+        : 0,
   };
 
   return (
@@ -192,7 +200,7 @@ export default function QuinielaMexicanaPage() {
         <div>
           <h1 className="text-3xl font-bold text-white">Quiniela Mexicana</h1>
           <p className="text-gray-400 mt-2">
-            Predicciones de Liga MX basadas en datos históricos y estado actual
+            Sistema profesional con Poisson, ELO Rating y análisis multivariable
           </p>
         </div>
         <div className="flex gap-3">
@@ -221,7 +229,7 @@ export default function QuinielaMexicanaPage() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <div className="bg-gray-800 rounded-xl p-4 text-center">
           <p className="text-3xl font-bold text-white">{stats.total}</p>
           <p className="text-sm text-gray-400">Total</p>
@@ -242,6 +250,12 @@ export default function QuinielaMexicanaPage() {
           <p className="text-3xl font-bold text-purple-400">{stats.accuracy}%</p>
           <p className="text-sm text-gray-400">Efectividad</p>
         </div>
+        <div className="bg-gray-800 rounded-xl p-4 text-center">
+          <p className={`text-3xl font-bold ${getConfidenceColor(stats.avgConfidence / 100)}`}>
+            {stats.avgConfidence}%
+          </p>
+          <p className="text-sm text-gray-400">Confianza Prom.</p>
+        </div>
       </div>
 
       {/* Próximos Fixtures */}
@@ -250,9 +264,7 @@ export default function QuinielaMexicanaPage() {
         {loading ? (
           <div className="text-center py-8 text-gray-400">Cargando fixtures...</div>
         ) : fixtures.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
-            No hay fixtures disponibles. Verifica la conexión con TheSportsDB.
-          </div>
+          <div className="text-center py-8 text-gray-400">No hay fixtures disponibles</div>
         ) : (
           <div className="space-y-3">
             {fixtures.slice(0, 10).map((fixture) => (
@@ -281,7 +293,7 @@ export default function QuinielaMexicanaPage() {
         )}
       </div>
 
-      {/* Filtro de jornada */}
+      {/* Filtro */}
       <div className="flex items-center gap-4">
         <label className="text-gray-400">Filtrar por jornada:</label>
         <select
@@ -291,126 +303,234 @@ export default function QuinielaMexicanaPage() {
         >
           <option value="all">Todas</option>
           {jornadas.map((j) => (
-            <option key={j} value={j}>
-              {j}
-            </option>
+            <option key={j} value={j}>{j}</option>
           ))}
         </select>
       </div>
 
       {/* Predicciones */}
       <div className="bg-gray-800 border border-gray-700 rounded-xl p-6">
-        <h2 className="text-xl font-bold text-white mb-4">Predicciones</h2>
+        <h2 className="text-xl font-bold text-white mb-4">Predicciones Profesionales</h2>
         {filteredPredictions.length === 0 ? (
           <div className="text-center py-8 text-gray-400">
             No hay predicciones. Haz clic en &quot;Generar Predicciones&quot;.
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {filteredPredictions.map((pred) => (
               <div
                 key={pred.id}
-                className="bg-gray-700/50 rounded-lg p-4 border border-gray-600"
+                className="bg-gray-700/50 rounded-lg p-5 border border-gray-600"
               >
-                <div className="flex items-center justify-between mb-3">
+                {/* Header del partido */}
+                <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-4">
-                    <span className="text-white font-medium text-lg">
-                      {pred.home_team}
-                    </span>
-                    <span className={`px-4 py-2 rounded-lg text-white font-bold ${getPredictionColor(pred.prediction)}`}>
+                    <span className="text-white font-bold text-lg">{pred.home_team}</span>
+                    <span className={`px-5 py-2 rounded-lg text-white font-bold text-lg ${getPredictionColor(pred.prediction)}`}>
                       {getPredictionLabel(pred.prediction)}
                     </span>
-                    <span className="text-white font-medium text-lg">
-                      {pred.away_team}
-                    </span>
+                    <span className="text-white font-bold text-lg">{pred.away_team}</span>
                   </div>
                   <div className="flex items-center gap-4">
                     <span className="text-sm text-gray-400">
                       {pred.match_date} {pred.match_time}
                     </span>
-                    <span className={`font-bold ${getConfidenceColor(pred.confidence)}`}>
-                      {Math.round(pred.confidence * 100)}%
-                    </span>
+                    <div className="text-right">
+                      <span className={`font-bold text-lg ${getConfidenceColor(pred.confidence)}`}>
+                        {Math.round(pred.confidence * 100)}%
+                      </span>
+                      <span className="text-xs text-gray-400 block">
+                        {getConfidenceLabel(pred.confidence)}
+                      </span>
+                    </div>
                     {pred.status === "won" && (
-                      <span className="text-green-400 font-bold">✓ CORRECTA</span>
+                      <span className="text-green-400 font-bold">✓ ACERTÓ</span>
                     )}
                     {pred.status === "lost" && (
-                      <span className="text-red-400 font-bold">✗ INCORRECTA</span>
+                      <span className="text-red-400 font-bold">✗ FALLÓ</span>
                     )}
                   </div>
                 </div>
 
-                {/* Probabilidades */}
-                <div className="flex gap-4 mb-3">
-                  <div className="flex-1 bg-gray-600 rounded-lg p-3 text-center">
-                    <div className="text-sm text-gray-400">Local</div>
-                    <div className="text-xl font-bold text-green-400">
+                {/* Probabilidades principales */}
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="bg-gray-600 rounded-lg p-4 text-center">
+                    <div className="text-sm text-gray-400 mb-1">Local</div>
+                    <div className="text-2xl font-bold text-green-400">
                       {Math.round(pred.home_win_prob * 100)}%
                     </div>
+                    <div className="w-full bg-gray-500 rounded-full h-2 mt-2">
+                      <div
+                        className="bg-green-500 h-2 rounded-full"
+                        style={{ width: `${pred.home_win_prob * 100}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="flex-1 bg-gray-600 rounded-lg p-3 text-center">
-                    <div className="text-sm text-gray-400">Empate</div>
-                    <div className="text-xl font-bold text-yellow-400">
+                  <div className="bg-gray-600 rounded-lg p-4 text-center">
+                    <div className="text-sm text-gray-400 mb-1">Empate</div>
+                    <div className="text-2xl font-bold text-yellow-400">
                       {Math.round(pred.draw_prob * 100)}%
                     </div>
+                    <div className="w-full bg-gray-500 rounded-full h-2 mt-2">
+                      <div
+                        className="bg-yellow-500 h-2 rounded-full"
+                        style={{ width: `${pred.draw_prob * 100}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="flex-1 bg-gray-600 rounded-lg p-3 text-center">
-                    <div className="text-sm text-gray-400">Visitante</div>
-                    <div className="text-xl font-bold text-red-400">
+                  <div className="bg-gray-600 rounded-lg p-4 text-center">
+                    <div className="text-sm text-gray-400 mb-1">Visitante</div>
+                    <div className="text-2xl font-bold text-red-400">
                       {Math.round(pred.away_win_prob * 100)}%
                     </div>
+                    <div className="w-full bg-gray-500 rounded-full h-2 mt-2">
+                      <div
+                        className="bg-red-500 h-2 rounded-full"
+                        style={{ width: `${pred.away_win_prob * 100}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* Goles esperados */}
-                <div className="text-sm text-gray-400 mb-3">
-                  Goles esperados: {pred.home_team} {pred.expected_home_goals} - {pred.expected_away_goals} {pred.away_team}
+                {/* Goles esperados y mercados */}
+                <div className="grid grid-cols-4 gap-3 mb-4">
+                  <div className="bg-gray-600/50 rounded-lg p-3 text-center">
+                    <div className="text-xs text-gray-400">Goles Esperados</div>
+                    <div className="text-lg font-bold text-white">
+                      {pred.expected_home_goals} - {pred.expected_away_goals}
+                    </div>
+                  </div>
+                  <div className="bg-gray-600/50 rounded-lg p-3 text-center">
+                    <div className="text-xs text-gray-400">Over 2.5</div>
+                    <div className="text-lg font-bold text-blue-400">
+                      {Math.round((pred.factor_history?.over_25 || 0.5) * 100)}%
+                    </div>
+                  </div>
+                  <div className="bg-gray-600/50 rounded-lg p-3 text-center">
+                    <div className="text-xs text-gray-400">BTTS</div>
+                    <div className="text-lg font-bold text-purple-400">
+                      {Math.round((pred.factor_history?.btts || 0.5) * 100)}%
+                    </div>
+                  </div>
+                  <div className="bg-gray-600/50 rounded-lg p-3 text-center">
+                    <div className="text-xs text-gray-400">Clean Sheet</div>
+                    <div className="text-lg font-bold text-cyan-400">
+                      {Math.round((pred.factor_history?.clean_sheet || 0.3) * 100)}%
+                    </div>
+                  </div>
                 </div>
 
-                {/* Botón de factores */}
+                {/* Botón de detalles */}
                 <button
-                  onClick={() => setShowFactors(showFactors === pred.id ? null : pred.id)}
-                  className="text-sm text-blue-400 hover:text-blue-300"
+                  onClick={() => setExpandedPrediction(expandedPrediction === pred.id ? null : pred.id)}
+                  className="w-full text-center py-2 text-blue-400 hover:text-blue-300 text-sm font-medium"
                 >
-                  {showFactors === pred.id ? "Ocultar factores" : "Ver factores de predicción"}
+                  {expandedPrediction === pred.id ? "Ocultar Análisis ▲" : "Ver Análisis Completo ▼"}
                 </button>
 
-                {/* Factores detallados */}
-                {showFactors === pred.id && (
-                  <div className="mt-4 p-4 bg-gray-600/50 rounded-lg space-y-3">
-                    <div>
-                      <h4 className="text-white font-medium mb-2">Estado del Equipo</h4>
-                      <div className="text-sm text-gray-300">
-                        <p>Fuerza Local: {pred.factor_team_state?.home_strength} | Fuerza Visitante: {pred.factor_team_state?.away_strength}</p>
-                        <p>Diferencia de forma: {pred.factor_team_state?.form_difference}</p>
+                {/* Panel expandido con análisis detallado */}
+                {expandedPrediction === pred.id && (
+                  <div className="mt-4 p-4 bg-gray-600/30 rounded-lg space-y-4">
+                    {/* Factores de predicción */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="text-white font-semibold mb-2 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-blue-500 rounded-full" />
+                          ELO Rating
+                        </h4>
+                        <div className="text-sm text-gray-300 space-y-1">
+                          <p>Local: <span className="text-white font-medium">{pred.factor_team_state?.home || "N/A"}</span></p>
+                          <p>Visitante: <span className="text-white font-medium">{pred.factor_team_state?.away || "N/A"}</span></p>
+                          <p>Diferencia: <span className={`font-medium ${(pred.factor_team_state?.diff || 0) > 0 ? "text-green-400" : "text-red-400"}`}>
+                            {(pred.factor_team_state?.diff || 0) > 0 ? "+" : ""}{pred.factor_team_state?.diff || 0}
+                          </span></p>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="text-white font-semibold mb-2 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-green-500 rounded-full" />
+                          Forma Reciente
+                        </h4>
+                        <div className="text-sm text-gray-300 space-y-1">
+                          <p>Local: <span className="text-white font-medium">{pred.factor_form?.home || "N/A"}/15</span></p>
+                          <p>Visitante: <span className="text-white font-medium">{pred.factor_form?.away || "N/A"}/15</span></p>
+                          <p>Forma Ponderada: <span className="text-white font-medium">
+                            {pred.factor_form?.weighted_home || "N/A"} vs {pred.factor_form?.weighted_away || "N/A"}
+                          </span></p>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="text-white font-semibold mb-2 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-yellow-500 rounded-full" />
+                          Historial H2H
+                        </h4>
+                        <div className="text-sm text-gray-300 space-y-1">
+                          <p>Ventaja: <span className={`font-medium ${(pred.factor_history?.advantage || 0) > 0 ? "text-green-400" : "text-red-400"}`}>
+                            {(pred.factor_history?.advantage || 0) > 0 ? "+" : ""}{pred.factor_history?.advantage || 0} goles
+                          </span></p>
+                          <p>Dominio Reciente: <span className="text-white font-medium">
+                            {Math.round((pred.factor_history?.recent_dominance || 0.5) * 100)}%
+                          </span></p>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="text-white font-semibold mb-2 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-purple-500 rounded-full" />
+                          Contexto
+                        </h4>
+                        <div className="text-sm text-gray-300 space-y-1">
+                          <p>Urgencia: <span className="text-white font-medium">{pred.factor_context?.urgency || "N/A"}</span></p>
+                          <p>Importancia: <span className="text-white font-medium">{pred.factor_context?.importance || "N/A"}</span></p>
+                          <p>Fatiga: <span className="text-white font-medium">{pred.factor_context?.fatigue || "N/A"}</span></p>
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <h4 className="text-white font-medium mb-2">Historial</h4>
-                      <div className="text-sm text-gray-300">
-                        <p>Ventaja H2H: {pred.factor_history?.h2h_advantage} | Tendencia Local/Visitante: {pred.factor_history?.home_away_tendency}</p>
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className="text-white font-medium mb-2">Forma Reciente</h4>
-                      <div className="text-sm text-gray-300">
-                        <p>Forma Local: {pred.factor_form?.home_form}/15 | Forma Visitante: {pred.factor_form?.away_form}/15</p>
-                        <p>Momentum: {pred.factor_form?.momentum}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
-                {/* Resultado real */}
-                {pred.status !== "pending" && (
-                  <div className="mt-3 p-3 bg-gray-600 rounded-lg">
-                    <span className="text-gray-400">Resultado real: </span>
-                    <span className="text-white font-bold">
-                      {pred.home_team} {pred.actual_home_goals} - {pred.actual_away_goals} {pred.away_team}
-                    </span>
-                    <span className={`ml-3 font-bold ${pred.is_correct ? "text-green-400" : "text-red-400"}`}>
-                      {pred.is_correct ? "✓ ACERTÓ" : "✗ FALLÓ"}
-                    </span>
+                    {/* Localía vs Visitante */}
+                    <div className="p-3 bg-gray-600/50 rounded-lg">
+                      <h4 className="text-white font-semibold mb-2">Rendimiento Local/Visitante</h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="text-gray-300">
+                          <p>Local como Local: <span className="text-green-400 font-medium">
+                            {Math.round((pred.factor_form?.home_advantage || 0.45) * 100)}% victorias
+                          </span></p>
+                        </div>
+                        <div className="text-gray-300">
+                          <p>Visitante como Visitante: <span className="text-red-400 font-medium">
+                            {Math.round((pred.factor_form?.away_performance || 0.35) * 100)}% victorias
+                          </span></p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Modelo Poisson */}
+                    <div className="p-3 bg-gray-600/50 rounded-lg">
+                      <h4 className="text-white font-semibold mb-2">Modelo Poisson</h4>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="text-gray-300">
+                          <p>Lambda Local: <span className="text-white font-medium">{pred.factor_team_state?.lambda_home || "N/A"}</span></p>
+                          <p>Lambda Visitante: <span className="text-white font-medium">{pred.factor_team_state?.lambda_away || "N/A"}</span></p>
+                        </div>
+                        <div className="text-gray-300">
+                          <p>Goles Esperados Totales: <span className="text-white font-medium">
+                            {pred.expected_home_goals + pred.expected_away_goals}
+                          </span></p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Resultado real */}
+                    {pred.status !== "pending" && (
+                      <div className="p-3 bg-gray-600 rounded-lg">
+                        <span className="text-gray-400">Resultado real: </span>
+                        <span className="text-white font-bold">
+                          {pred.home_team} {pred.actual_home_goals} - {pred.actual_away_goals} {pred.away_team}
+                        </span>
+                        <span className={`ml-3 font-bold ${pred.is_correct ? "text-green-400" : "text-red-400"}`}>
+                          {pred.is_correct ? "✓ ACERTÓ" : "✗ FALLÓ"}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -422,24 +542,28 @@ export default function QuinielaMexicanaPage() {
       {/* Cómo funciona */}
       <div className="p-6 bg-gray-800/50 border border-gray-700 rounded-xl">
         <h3 className="text-lg font-semibold text-white mb-4">
-          Cómo Funciona la Quiniela Mexicana
+          Sistema de Predicción Profesional
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm text-gray-400">
-          <div>
-            <p className="text-white font-medium mb-1">1. Datos Históricos</p>
-            <p>Se almacenan los últimos 100 partidos entre cada par de equipos en Supabase.</p>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 text-sm text-gray-400">
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-blue-400 font-medium mb-1">Poisson (30%)</p>
+            <p>Modelo estadístico de distribución de goles</p>
           </div>
-          <div>
-            <p className="text-white font-medium mb-1">2. Estado Actual</p>
-            <p>Se actualiza semanalmente: posición, forma, rachas, goles, lesiones.</p>
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-green-400 font-medium mb-1">ELO Rating (20%)</p>
+            <p>Sistema de rating adaptado del ajedrez</p>
           </div>
-          <div>
-            <p className="text-white font-medium mb-1">3. Factores de Predicción</p>
-            <p>Fuerza del equipo, historial, forma reciente, contexto del partido, rivalidad.</p>
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-yellow-400 font-medium mb-1">Forma (20%)</p>
+            <p>Análisis de rendimiento reciente ponderado</p>
           </div>
-          <div>
-            <p className="text-white font-medium mb-1">4. Generación Automática</p>
-            <p>Se generan predicciones 2 días antes de cada jornada de Liga MX.</p>
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-purple-400 font-medium mb-1">H2H (15%)</p>
+            <p>Historial cara a cara con peso por recencia</p>
+          </div>
+          <div className="p-3 bg-gray-700/50 rounded-lg">
+            <p className="text-red-400 font-medium mb-1">Contexto (15%)</p>
+            <p>Urgencia, importancia, fatiga, localía</p>
           </div>
         </div>
       </div>

@@ -1,11 +1,11 @@
 // =============================================
-// API — GENERAR PREDICCIONES DE QUINIELA
+// API — GENERAR PREDICCIONES PROFESIONALES
 // =============================================
-// POST /api/quiniela/predictions → Genera predicciones para una jornada
+// POST /api/quiniela/predictions → Genera predicciones avanzadas
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { predictMatch, type MatchContext } from "@/lib/quiniela-predictor";
+import { predictMatch, type MatchContext, type PredictionResult } from "@/lib/quiniela-predictor";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     for (const match of matches) {
       const { homeTeam, awayTeam, date, time, jornada: matchJornada, venue } = match as MatchInput;
 
-      // Verificar si ya existe predicción para este partido
+      // Verificar si ya existe predicción
       if (!forceGenerate) {
         const { data: existing } = await supabase
           .from("quiniela_predictions")
@@ -64,27 +64,14 @@ export async function POST(request: NextRequest) {
         home_needs_points: false,
         away_needs_points: false,
         rivalry_intensity: 0.5,
+        match_importance: 0.5,
+        home_crowd_factor: 0.7,
+        weather_impact: 0,
+        referee_strictness: 0.5,
       };
 
-      // Generar predicción
+      // Generar predicción profesional
       const prediction = await predictMatch(homeTeam, awayTeam, context);
-
-      // Determinar predicción final
-      let predictionResult = "X";
-      if (prediction.combined.home_win_prob > prediction.combined.away_win_prob &&
-          prediction.combined.home_win_prob > prediction.combined.draw_prob) {
-        predictionResult = "1";
-      } else if (prediction.combined.away_win_prob > prediction.combined.home_win_prob &&
-                 prediction.combined.away_win_prob > prediction.combined.draw_prob) {
-        predictionResult = "2";
-      }
-
-      // Calcular confianza (la probabilidad más alta)
-      const confidence = Math.max(
-        prediction.combined.home_win_prob,
-        prediction.combined.draw_prob,
-        prediction.combined.away_win_prob
-      );
 
       // Guardar en BD
       const { error } = await supabase.from("quiniela_predictions").upsert(
@@ -95,17 +82,17 @@ export async function POST(request: NextRequest) {
           match_time: time,
           home_team: homeTeam,
           away_team: awayTeam,
-          prediction: predictionResult,
-          confidence,
-          home_win_prob: prediction.combined.home_win_prob,
-          draw_prob: prediction.combined.draw_prob,
-          away_win_prob: prediction.combined.away_win_prob,
-          expected_home_goals: prediction.combined.expected_home_goals,
-          expected_away_goals: prediction.combined.expected_away_goals,
-          factor_team_state: prediction.team_state,
-          factor_history: prediction.history,
-          factor_form: prediction.form,
-          factor_context: prediction.context,
+          prediction: prediction.prediction,
+          confidence: prediction.confidence,
+          home_win_prob: prediction.home_win_prob,
+          draw_prob: prediction.draw_prob,
+          away_win_prob: prediction.away_win_prob,
+          expected_home_goals: prediction.expected_home_goals,
+          expected_away_goals: prediction.expected_away_goals,
+          factor_team_state: prediction.factors.team_strength,
+          factor_history: prediction.factors.h2h,
+          factor_form: prediction.factors.form,
+          factor_context: prediction.factors.context,
           status: "pending",
         },
         { onConflict: "jornada,home_team,away_team" }
@@ -117,12 +104,23 @@ export async function POST(request: NextRequest) {
         generated++;
         results.push({
           match: `${homeTeam} vs ${awayTeam}`,
-          prediction: predictionResult,
-          confidence: Math.round(confidence * 100),
+          prediction: prediction.prediction,
+          confidence: Math.round(prediction.confidence * 100),
           probabilities: {
-            home: Math.round(prediction.combined.home_win_prob * 100),
-            draw: Math.round(prediction.combined.draw_prob * 100),
-            away: Math.round(prediction.combined.away_win_prob * 100),
+            home: Math.round(prediction.home_win_prob * 100),
+            draw: Math.round(prediction.draw_prob * 100),
+            away: Math.round(prediction.away_win_prob * 100),
+          },
+          goals: {
+            expected_home: prediction.expected_home_goals,
+            expected_away: prediction.expected_away_goals,
+            over_2_5: Math.round(prediction.over_2_5_prob * 100),
+            btts: Math.round(prediction.btts_yes_prob * 100),
+          },
+          likely_scores: prediction.likely_scores.slice(0, 3),
+          factors: {
+            elo_diff: prediction.factors.elo.diff,
+            form_diff: prediction.factors.form.weighted_home - prediction.factors.form.weighted_away,
           },
         });
       }
@@ -130,7 +128,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Generadas ${generated} predicciones, ${skipped} omitidas`,
+      message: `Generadas ${generated} predicciones profesionales, ${skipped} omitidas`,
       generated,
       skipped,
       errors,

@@ -1,12 +1,17 @@
 // =============================================
-// MOTOR DE PREDICCIÓN — QUINIELA MEXICANA
+// MOTOR DE PREDICCIÓN PROFESIONAL — QUINIELA
 // =============================================
-// Predice resultados de Liga MX usando datos históricos y estado actual
+// Sistema avanzado con Poisson, ELO, análisis multivariable
+// Basado en modelos estadísticos de predicción deportiva
 
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+// =============================================
+// INTERFACES
+// =============================================
 
 export interface TeamState {
   team_name: string;
@@ -47,7 +52,44 @@ export interface HeadToHeadRecord {
   away_wins: number;
   avg_home_goals: number;
   avg_away_goals: number;
-  recent_form: string; // Últimos 5 resultados
+  recent_form: string;
+  last_10_results: string[];
+  home_team_goals_scored: number;
+  away_team_goals_scored: number;
+}
+
+export interface AdvancedStats {
+  // ELO Rating
+  elo_rating: number;
+  elo_change_last_5: number;
+  
+  // Forma ponderada (más peso a partidos recientes)
+  weighted_form: number;
+  
+  // Eficiencia ofensiva
+  shots_per_game: number;
+  shot_accuracy: number;
+  conversion_rate: number;
+  
+  // Eficiencia defensiva
+  clean_sheets: number;
+  clean_sheet_pct: number;
+  goals_conceded_per_shot: number;
+  
+  // Patrones de goles
+  goals_first_half: number;
+  goals_second_half: number;
+  goals_conceded_first_half: number;
+  goals_conceded_second_half: number;
+  
+  // Rendimiento por contexto
+  performance_under_pressure: number;
+  comeback_ability: number;
+  
+  // Fatiga
+  days_since_last_match: number;
+  matches_last_30_days: number;
+  fatigue_factor: number;
 }
 
 export interface MatchContext {
@@ -56,62 +98,148 @@ export interface MatchContext {
   must_win_away: boolean;
   home_needs_points: boolean;
   away_needs_points: boolean;
-  rivalry_intensity: number; // 0-1
+  rivalry_intensity: number;
+  match_importance: number; // 0-1
+  home_crowd_factor: number; // 0-1
+  weather_impact: number; // -1 a 1
+  referee_strictness: number; // 0-1
 }
 
-export interface PredictionFactors {
-  team_state: {
-    home_strength: number;
-    away_strength: number;
-    form_difference: number;
-    streak_factor: number;
-  };
-  history: {
-    h2h_advantage: number;
-    home_away_tendency: number;
-  };
-  form: {
-    home_form: number;
-    away_form: number;
-    momentum: number;
-  };
-  context: {
-    urgency_factor: number;
-    home_advantage: number;
-  };
-  combined: {
-    home_win_prob: number;
-    draw_prob: number;
-    away_win_prob: number;
-    expected_home_goals: number;
-    expected_away_goals: number;
+export interface PredictionResult {
+  // Probabilidades principales
+  home_win_prob: number;
+  draw_prob: number;
+  away_win_prob: number;
+  
+  // Goles esperados
+  expected_home_goals: number;
+  expected_away_goals: number;
+  expected_total_goals: number;
+  
+  // Probabilidades de goles
+  over_1_5_prob: number;
+  over_2_5_prob: number;
+  over_3_5_prob: number;
+  under_1_5_prob: number;
+  under_2_5_prob: number;
+  under_3_5_prob: number;
+  
+  // BTTS (Ambos equipos anotan)
+  btts_yes_prob: number;
+  btts_no_prob: number;
+  
+  // Clean sheets
+  home_clean_sheet_prob: number;
+  away_clean_sheet_prob: number;
+  
+  // Marcadores más probables
+  likely_scores: Array<{ score: string; prob: number }>;
+  
+  // Confianza
+  confidence: number;
+  confidence_level: string;
+  
+  // Factor de predicción
+  prediction: string;
+  
+  // Desglose de factores
+  factors: {
+    team_strength: { home: number; away: number; diff: number };
+    form: { home: number; away: number; weighted_home: number; weighted_away: number };
+    h2h: { advantage: number; recent_dominance: number };
+    home_away: { home_advantage: number; away_performance: number };
+    context: { urgency: number; importance: number; fatigue: number };
+    poisson: { lambda_home: number; lambda_away: number };
+    elo: { home: number; away: number; diff: number };
   };
 }
+
+// =============================================
+// CONSTANTES Y PESOS DEL MODELO
+// =============================================
+
+// Pesos para cada factor en el modelo final
+const MODEL_WEIGHTS = {
+  poisson: 0.30,      // Distribución de Poisson
+  elo: 0.20,          // ELO Rating
+  form: 0.20,         // Forma reciente
+  h2h: 0.15,          // Historial cara a cara
+  context: 0.15,      // Contexto del partido
+};
+
+// Pesos para forma ponderada (decaimiento exponencial)
+const FORM_DECAY = 0.85; // Cada partido anterior pesa 85% menos
+
+// Parámetros de Poisson para Liga MX
+const LIGA_MX_PARAMS = {
+  avg_home_goals: 1.45,
+  avg_away_goals: 1.15,
+  home_advantage: 0.25,
+  attack_strength_multiplier: 1.1,
+  defense_strength_multiplier: 0.9,
+};
 
 // Rivalidades conocidas (intensidad 0-1)
 const RIVALRIES: Record<string, number> = {
-  "América-Cruz Azul": 0.95, // Clásico Joven
-  "América-Guadalajara": 0.95, // Clásico Nacional
-  "América-Tigres UANL": 0.85,
-  "América-Monterrey": 0.85,
-  "Cruz Azul-Guadalajara": 0.80,
-  "Cruz Azul-Pumas UNAM": 0.85, // Clásico Capitalino
-  "Guadalajara-Tigres UANL": 0.80,
-  "Guadalajara-Monterrey": 0.80,
-  "Tigres UANL-Monterrey": 0.90, // Clásico Regiomontano
-  "Toluca-América": 0.80,
-  "León-Guadalajara": 0.75,
-  "Santos Laguna-Tigres UANL": 0.75,
-  "Pachuca-León": 0.70,
-  "Atlas-Guadalajara": 0.70,
-  "Puebla-Toluca": 0.65,
+  "América-Cruz Azul": 0.98,
+  "América-Guadalajara": 0.98,
+  "América-Tigres UANL": 0.90,
+  "América-Monterrey": 0.90,
+  "Cruz Azul-Guadalajara": 0.85,
+  "Cruz Azul-Pumas UNAM": 0.90,
+  "Guadalajara-Tigres UANL": 0.85,
+  "Guadalajara-Monterrey": 0.85,
+  "Tigres UANL-Monterrey": 0.95,
+  "Toluca-América": 0.85,
+  "León-Guadalajara": 0.80,
+  "Santos Laguna-Tigres UANL": 0.80,
+  "Pachuca-León": 0.75,
+  "Atlas-Guadalajara": 0.75,
+  "Puebla-Toluca": 0.70,
+  "Necaxa-América": 0.70,
+  "Pumas UNAM-América": 0.85,
+  "Monterrey-Cruz Azul": 0.75,
 };
+
+// =============================================
+// FUNCIONES AUXILIARES
+// =============================================
 
 function getRivalry(team1: string, team2: string): number {
   const key1 = `${team1}-${team2}`;
   const key2 = `${team2}-${team1}`;
   return RIVALRIES[key1] || RIVALRIES[key2] || 0.5;
 }
+
+// Factorial para Poisson
+function factorial(n: number): number {
+  if (n <= 1) return 1;
+  let result = 1;
+  for (let i = 2; i <= n; i++) result *= i;
+  return result;
+}
+
+// Distribución de Poisson: P(X = k) = (λ^k * e^-λ) / k!
+function poissonProbability(lambda: number, k: number): number {
+  return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial(k);
+}
+
+// ELO Rating inicial para Liga MX
+const INITIAL_ELO = 1500;
+
+// Calcular ELO esperado
+function eloExpected(ratingA: number, ratingB: number): number {
+  return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+}
+
+// Actualizar ELO
+function eloUpdate(rating: number, expected: number, actual: number, kFactor: number = 32): number {
+  return rating + kFactor * (actual - expected);
+}
+
+// =============================================
+// OBTENER DATOS DE LA BASE DE DATOS
+// =============================================
 
 export async function getTeamState(teamName: string): Promise<TeamState | null> {
   const supabase = createClient(supabaseUrl, supabaseKey);
@@ -134,7 +262,7 @@ export async function getHeadToHead(homeTeam: string, awayTeam: string): Promise
     .select("*")
     .or(`and(home_team.eq.${homeTeam},away_team.eq.${awayTeam}),and(home_team.eq.${awayTeam},away_team.eq.${homeTeam})`)
     .order("match_date", { ascending: false })
-    .limit(20);
+    .limit(30);
 
   if (error || !data || data.length === 0) {
     return {
@@ -145,6 +273,9 @@ export async function getHeadToHead(homeTeam: string, awayTeam: string): Promise
       avg_home_goals: 1.5,
       avg_away_goals: 1.2,
       recent_form: "",
+      last_10_results: [],
+      home_team_goals_scored: 0,
+      away_team_goals_scored: 0,
     };
   }
 
@@ -153,25 +284,35 @@ export async function getHeadToHead(homeTeam: string, awayTeam: string): Promise
   let awayWins = 0;
   let totalHomeGoals = 0;
   let totalAwayGoals = 0;
+  let homeTeamGoals = 0;
+  let awayTeamGoals = 0;
 
-  const formResults: string[] = [];
+  const last10Results: string[] = [];
 
   for (const match of data) {
     const isHome = match.home_team === homeTeam;
     totalHomeGoals += match.home_goals;
     totalAwayGoals += match.away_goals;
+    
+    if (isHome) {
+      homeTeamGoals += match.home_goals;
+      awayTeamGoals += match.away_goals;
+    } else {
+      homeTeamGoals += match.away_goals;
+      awayTeamGoals += match.home_goals;
+    }
 
     if (match.home_goals > match.away_goals) {
       if (isHome) homeWins++;
       else awayWins++;
-      formResults.push(isHome ? "W" : "L");
+      last10Results.push(isHome ? "W" : "L");
     } else if (match.home_goals < match.away_goals) {
       if (isHome) awayWins++;
       else homeWins++;
-      formResults.push(isHome ? "L" : "W");
+      last10Results.push(isHome ? "L" : "W");
     } else {
       draws++;
-      formResults.push("D");
+      last10Results.push("D");
     }
   }
 
@@ -182,128 +323,492 @@ export async function getHeadToHead(homeTeam: string, awayTeam: string): Promise
     away_wins: awayWins,
     avg_home_goals: Math.round((totalHomeGoals / data.length) * 100) / 100,
     avg_away_goals: Math.round((totalAwayGoals / data.length) * 100) / 100,
-    recent_form: formResults.slice(0, 5).join("-"),
+    recent_form: last10Results.slice(0, 5).join("-"),
+    last_10_results: last10Results.slice(0, 10),
+    home_team_goals_scored: homeTeamGoals,
+    away_team_goals_scored: awayTeamGoals,
   };
 }
 
-export async function getTeamFormAtHome(teamName: string): Promise<{ wins: number; draws: number; losses: number; total: number }> {
+export async function getTeamMatchHistory(teamName: string, limit: number = 20): Promise<any[]> {
   const supabase = createClient(supabaseUrl, supabaseKey);
   
   const { data, error } = await supabase
     .from("match_history")
     .select("*")
-    .eq("home_team", teamName)
+    .or(`home_team.eq.${teamName},away_team.eq.${teamName}`)
     .order("match_date", { ascending: false })
-    .limit(20);
+    .limit(limit);
 
-  if (error || !data) return { wins: 0, draws: 0, losses: 0, total: 0 };
-
-  let wins = 0;
-  let draws = 0;
-  let losses = 0;
-
-  for (const match of data) {
-    if (match.home_goals > match.away_goals) wins++;
-    else if (match.home_goals === match.away_goals) draws++;
-    else losses++;
-  }
-
-  return { wins, draws, losses, total: data.length };
+  return error ? [] : (data || []);
 }
 
-export async function getTeamFormAway(teamName: string): Promise<{ wins: number; draws: number; losses: number; total: number }> {
-  const supabase = createClient(supabaseUrl, supabaseKey);
+// =============================================
+// CÁLCULO DE ELO RATINGS
+// =============================================
+
+function calculateELOFromHistory(matches: any[], teamName: string): { elo: number; last5Change: number } {
+  let elo = INITIAL_ELO;
+  const eloHistory: number[] = [elo];
+
+  // Procesar partidos del más antiguo al más reciente
+  const sortedMatches = [...matches].reverse();
+
+  for (const match of sortedMatches) {
+    const isHome = match.home_team === teamName;
+    const opponent = isHome ? match.away_team : match.home_team;
+    
+    // ELO del oponente (simplificado: todos en 1500)
+    const opponentElo = INITIAL_ELO;
+    
+    const expected = eloExpected(elo, opponentElo);
+    let actual = 0.5; // Empate
+    
+    if (isHome) {
+      if (match.home_goals > match.away_goals) actual = 1;
+      else if (match.home_goals < match.away_goals) actual = 0;
+    } else {
+      if (match.away_goals > match.home_goals) actual = 1;
+      else if (match.away_goals < match.home_goals) actual = 0;
+    }
+
+    elo = eloUpdate(elo, expected, actual);
+    eloHistory.push(elo);
+  }
+
+  // Cambio en últimos 5 partidos
+  const last5Change = eloHistory.length > 5 
+    ? eloHistory[eloHistory.length - 1] - eloHistory[eloHistory.length - 6]
+    : 0;
+
+  return { elo, last5Change };
+}
+
+// =============================================
+// CÁLCULO DE FORMA PONDERADA
+// =============================================
+
+function calculateWeightedForm(results: string[]): number {
+  let weightedSum = 0;
+  let weightSum = 0;
+
+  results.forEach((result, index) => {
+    const weight = Math.pow(FORM_DECAY, index);
+    let points = 0;
+    
+    if (result === "W") points = 3;
+    else if (result === "D") points = 1;
+    else points = 0;
+
+    weightedSum += points * weight;
+    weightSum += weight;
+  });
+
+  return weightSum > 0 ? (weightedSum / weightSum) * 10 / 3 : 5; // Normalizar a 0-10
+}
+
+// =============================================
+// CÁLCULO DE ESTADÍSTICAS AVANZADAS
+// =============================================
+
+function calculateAdvancedStats(
+  matches: any[],
+  teamName: string,
+  teamState: TeamState | null
+): AdvancedStats {
+  const results = matches.map(match => {
+    const isHome = match.home_team === teamName;
+    const goalsFor = isHome ? match.home_goals : match.away_goals;
+    const goalsAgainst = isHome ? match.away_goals : match.home_goals;
+    
+    let result = "D";
+    if (goalsFor > goalsAgainst) result = "W";
+    else if (goalsFor < goalsAgainst) result = "L";
+    
+    return {
+      goalsFor,
+      goalsAgainst,
+      result,
+      isHome,
+      date: new Date(match.match_date),
+    };
+  });
+
+  // Forma ponderada
+  const weightedForm = calculateWeightedForm(results.map(r => r.result));
+
+  // Calcular ELO
+  const { elo, last5Change } = calculateELOFromHistory(matches, teamName);
+
+  // Estadísticas básicas
+  const totalMatches = results.length || 1;
+  const goalsScored = results.reduce((sum, r) => sum + r.goalsFor, 0);
+  const goalsConceded = results.reduce((sum, r) => sum + r.goalsAgainst, 0);
   
-  const { data, error } = await supabase
-    .from("match_history")
-    .select("*")
-    .eq("away_team", teamName)
-    .order("match_date", { ascending: false })
-    .limit(20);
+  // Clean sheets
+  const cleanSheets = results.filter(r => r.goalsAgainst === 0).length;
+  const cleanSheetPct = cleanSheets / totalMatches;
 
-  if (error || !data) return { wins: 0, draws: 0, losses: 0, total: 0 };
+  // Goles por mitad (estimación: 45% primero, 55% segundo)
+  const goalsFirstHalf = Math.round(goalsScored * 0.45);
+  const goalsSecondHalf = goalsScored - goalsFirstHalf;
+  const goalsConcededFirstHalf = Math.round(goalsConceded * 0.42);
+  const goalsConcededSecondHalf = goalsConceded - goalsConcededFirstHalf;
 
-  let wins = 0;
-  let draws = 0;
-  let losses = 0;
+  // Días desde último partido
+  const lastMatchDate = results.length > 0 ? results[0].date : new Date();
+  const daysSinceLastMatch = Math.floor(
+    (Date.now() - lastMatchDate.getTime()) / (1000 * 60 * 60 * 24)
+  );
 
-  for (const match of data) {
-    if (match.away_goals > match.home_goals) wins++;
-    else if (match.home_goals === match.away_goals) draws++;
-    else losses++;
-  }
+  // Partidos en últimos 30 días
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const matchesLast30Days = results.filter(r => r.date >= thirtyDaysAgo).length;
 
-  return { wins, draws, losses, total: data.length };
+  // Factor de fatiga (0.8-1.2)
+  let fatigueFactor = 1.0;
+  if (matchesLast30Days >= 8) fatigueFactor = 0.85; // Sobrecarga
+  else if (matchesLast30Days >= 6) fatigueFactor = 0.92;
+  else if (matchesLast30Days <= 3) fatigueFactor = 1.1; // Descansado
+
+  // Rendimiento bajo presión (últimos 10 partidos decisivos)
+  const recentResults = results.slice(0, 10);
+  const performanceUnderPressure = recentResults.length > 0
+    ? recentResults.filter(r => r.result === "W").length / recentResults.length
+    : 0.5;
+
+  // Capacidad de comeback (partidos donde ganó después de ir perdiendo)
+  // Simplificado: usamos proporción de victorias
+  const comebackAbility = teamState ? 
+    Math.min(1, (teamState.wins / (teamState.played || 1)) * 1.5) : 0.5;
+
+  // Estadísticas de tiro (estimación basada en goles)
+  const shotsPerGame = goalsScored / totalMatches * 4.5; // Ratio típico
+  const conversionRate = goalsScored / (shotsPerGame * totalMatches || 1);
+  const shotAccuracy = conversionRate * 2.5; // Factor de precisión
+
+  return {
+    elo_rating: elo,
+    elo_change_last_5: last5Change,
+    weighted_form: weightedForm,
+    shots_per_game: Math.round(shotsPerGame * 10) / 10,
+    shot_accuracy: Math.round(shotAccuracy * 100) / 100,
+    conversion_rate: Math.round(conversionRate * 100) / 100,
+    clean_sheets: cleanSheets,
+    clean_sheet_pct: Math.round(cleanSheetPct * 100) / 100,
+    goals_conceded_per_shot: goalsConceded / (shotsPerGame * totalMatches || 1),
+    goals_first_half: goalsFirstHalf,
+    goals_second_half: goalsSecondHalf,
+    goals_conceded_first_half: goalsConcededFirstHalf,
+    goals_conceded_second_half: goalsConcededSecondHalf,
+    performance_under_pressure: Math.round(performanceUnderPressure * 100) / 100,
+    comeback_ability: Math.round(comebackAbility * 100) / 100,
+    days_since_last_match: daysSinceLastMatch,
+    matches_last_30_days: matchesLast30Days,
+    fatigue_factor: fatigueFactor,
+  };
 }
 
-function calculateTeamStrength(state: TeamState | null, isHome: boolean): number {
-  if (!state) return 50; // Default si no hay datos
+// =============================================
+// MODELO DE POISSON MEJORADO
+// =============================================
 
-  let strength = 50;
+function poissonModel(
+  homeAttack: number,
+  homeDefense: number,
+  awayAttack: number,
+  awayDefense: number,
+  homeAdvantage: number
+): {
+  lambdaHome: number;
+  lambdaAway: number;
+  homeWinProb: number;
+  drawProb: number;
+  awayWinProb: number;
+  over15: number;
+  over25: number;
+  over35: number;
+  under15: number;
+  under25: number;
+  under35: number;
+  bttsYes: number;
+  bttsNo: number;
+  homeCleanSheet: number;
+  awayCleanSheet: number;
+  likelyScores: Array<{ score: string; prob: number }>;
+} {
+  // Calcular lambda (goles esperados) para cada equipo
+  const lambdaHome = homeAttack * LIGA_MX_PARAMS.avg_home_goals * homeAdvantage;
+  const lambdaAway = awayAttack * LIGA_MX_PARAMS.avg_away_goals;
 
-  // Factor 1: Posición en tabla (0-20 puntos)
-  if (state.current_position > 0) {
-    strength += Math.max(0, (18 - state.current_position)) * 1.1;
-  }
-
-  // Factor 2: Forma reciente (últimos 5) (-10 a +10)
-  strength += (state.form_last_5 - 7.5) * 1.3;
-
-  // Factor 3: Racha actual (-5 a +5)
-  if (state.streak_type === "W") {
-    strength += Math.min(state.streak_count * 1.5, 5);
-  } else if (state.streak_type === "L") {
-    strength -= Math.min(state.streak_count * 1.5, 5);
-  }
-
-  // Factor 4: Goles por partido (-5 a +5)
-  const goalDiff = state.avg_goals_scored - state.avg_goals_conceded;
-  strength += goalDiff * 2.5;
-
-  // Factor 5: Ventaja de localía (+5 si es local)
-  if (isHome) {
-    strength += 5;
-  }
-
-  return Math.max(20, Math.min(80, strength));
-}
-
-function calculateFormMomentum(last5: string): number {
-  if (!last5) return 0;
+  // Matriz de probabilidades para cada marcador
+  const maxGoals = 8;
+  const scoreProbs: number[][] = [];
   
-  const results = last5.split("-");
-  let momentum = 0;
-  const weights = [5, 4, 3, 2, 1]; // Más peso a resultados recientes
-
-  for (let i = 0; i < results.length && i < weights.length; i++) {
-    if (results[i] === "W") momentum += weights[i];
-    else if (results[i] === "L") momentum -= weights[i];
+  for (let i = 0; i <= maxGoals; i++) {
+    scoreProbs[i] = [];
+    for (let j = 0; j <= maxGoals; j++) {
+      scoreProbs[i][j] = poissonProbability(lambdaHome, i) * poissonProbability(lambdaAway, j);
+    }
   }
 
-  return momentum;
+  // Calcular probabilidades de resultado
+  let homeWinProb = 0;
+  let drawProb = 0;
+  let awayWinProb = 0;
+
+  for (let i = 0; i <= maxGoals; i++) {
+    for (let j = 0; j <= maxGoals; j++) {
+      if (i > j) homeWinProb += scoreProbs[i][j];
+      else if (i === j) drawProb += scoreProbs[i][j];
+      else awayWinProb += scoreProbs[i][j];
+    }
+  }
+
+  // Over/Under
+  let over15 = 0, over25 = 0, over35 = 0;
+  for (let i = 0; i <= maxGoals; i++) {
+    for (let j = 0; j <= maxGoals; j++) {
+      const total = i + j;
+      if (total > 1.5) over15 += scoreProbs[i][j];
+      if (total > 2.5) over25 += scoreProbs[i][j];
+      if (total > 3.5) over35 += scoreProbs[i][j];
+    }
+  }
+
+  // BTTS
+  let bttsYes = 0;
+  for (let i = 1; i <= maxGoals; i++) {
+    for (let j = 1; j <= maxGoals; j++) {
+      bttsYes += scoreProbs[i][j];
+    }
+  }
+
+  // Clean sheets
+  let homeCleanSheet = 0;
+  let awayCleanSheet = 0;
+  for (let i = 0; i <= maxGoals; i++) {
+    homeCleanSheet += scoreProbs[i][0];
+    awayCleanSheet += scoreProbs[0][i];
+  }
+
+  // Marcadores más probables
+  const scores: Array<{ score: string; prob: number }> = [];
+  for (let i = 0; i <= 5; i++) {
+    for (let j = 0; j <= 5; j++) {
+      scores.push({
+        score: `${i}-${j}`,
+        prob: Math.round(scoreProbs[i][j] * 10000) / 100,
+      });
+    }
+  }
+  scores.sort((a, b) => b.prob - a.prob);
+
+  return {
+    lambdaHome: Math.round(lambdaHome * 100) / 100,
+    lambdaAway: Math.round(lambdaAway * 100) / 100,
+    homeWinProb: Math.round(homeWinProb * 10000) / 10000,
+    drawProb: Math.round(drawProb * 10000) / 10000,
+    awayWinProb: Math.round(awayWinProb * 10000) / 10000,
+    over15: Math.round(over15 * 10000) / 10000,
+    over25: Math.round(over25 * 10000) / 10000,
+    over35: Math.round(over35 * 10000) / 10000,
+    under15: Math.round((1 - over15) * 10000) / 10000,
+    under25: Math.round((1 - over25) * 10000) / 10000,
+    under35: Math.round((1 - over35) * 10000) / 10000,
+    bttsYes: Math.round(bttsYes * 10000) / 10000,
+    bttsNo: Math.round((1 - bttsYes) * 10000) / 10000,
+    homeCleanSheet: Math.round(homeCleanSheet * 10000) / 10000,
+    awayCleanSheet: Math.round(awayCleanSheet * 10000) / 10000,
+    likelyScores: scores.slice(0, 10),
+  };
 }
 
-function calculateContextFactor(
+// =============================================
+// MODELO ELO
+// =============================================
+
+function eloModel(homeElo: number, awayElo: number): {
+  homeWinProb: number;
+  drawProb: number;
+  awayWinProb: number;
+} {
+  const homeAdvantage = 65; // Ventaja de localía en puntos ELO
+  const adjustedHomeElo = homeElo + homeAdvantage;
+
+  const homeExpected = eloExpected(adjustedHomeElo, awayElo);
+  const awayExpected = eloExpected(awayElo, adjustedHomeElo);
+
+  // Ajustar para empate (ELO no predice empates directamente)
+  const drawFactor = 0.26; // Tasa típica de empates en Liga MX
+  const homeWinProb = (1 - drawFactor) * homeExpected;
+  const awayWinProb = (1 - drawFactor) * awayExpected;
+  const drawProb = drawFactor;
+
+  return {
+    homeWinProb: Math.round(homeWinProb * 10000) / 10000,
+    drawProb: Math.round(drawProb * 10000) / 10000,
+    awayWinProb: Math.round(awayWinProb * 10000) / 10000,
+  };
+}
+
+// =============================================
+// MODELO DE FORMA
+// =============================================
+
+function formModel(
+  homeForm: number,
+  awayForm: number,
+  homeWeightedForm: number,
+  awayWeightedForm: number,
+  homeStreak: { type: string; count: number },
+  awayStreak: { type: string; count: number }
+): {
+  homeWinProb: number;
+  drawProb: number;
+  awayWinProb: number;
+} {
+  // Diferencia de forma
+  const formDiff = homeForm - awayForm;
+  const weightedFormDiff = homeWeightedForm - awayWeightedForm;
+
+  // Factor de racha
+  let streakFactor = 0;
+  if (homeStreak.type === "W") streakFactor += homeStreak.count * 0.03;
+  else if (homeStreak.type === "L") streakFactor -= homeStreak.count * 0.03;
+  
+  if (awayStreak.type === "W") streakFactor -= awayStreak.count * 0.02;
+  else if (awayStreak.type === "L") streakFactor += awayStreak.count * 0.02;
+
+  // Convertir a probabilidades
+  const baseHome = 0.42;
+  const baseDraw = 0.26;
+  const baseAway = 0.32;
+
+  const homeWinProb = baseHome + formDiff * 0.02 + weightedFormDiff * 0.03 + streakFactor;
+  const awayWinProb = baseAway - formDiff * 0.02 - weightedFormDiff * 0.03 + streakFactor * 0.8;
+  const drawProb = baseDraw - Math.abs(formDiff) * 0.01 - Math.abs(weightedFormDiff) * 0.01;
+
+  // Normalizar
+  const total = homeWinProb + drawProb + awayWinProb;
+  return {
+    homeWinProb: Math.max(0.1, Math.min(0.7, homeWinProb / total)),
+    drawProb: Math.max(0.15, Math.min(0.35, drawProb / total)),
+    awayWinProb: Math.max(0.1, Math.min(0.7, awayWinProb / total)),
+  };
+}
+
+// =============================================
+// MODELO H2H (HEAD-TO-HEAD)
+// =============================================
+
+function h2hModel(h2h: HeadToHeadRecord, homeTeam: string): {
+  homeWinProb: number;
+  drawProb: number;
+  awayWinProb: number;
+} {
+  if (h2h.total_matches < 3) {
+    return { homeWinProb: 0.42, drawProb: 0.26, awayWinProb: 0.32 };
+  }
+
+  const homeWinRate = h2h.home_wins / h2h.total_matches;
+  const awayWinRate = h2h.away_wins / h2h.total_matches;
+  const drawRate = h2h.draws / h2h.total_matches;
+
+  // Ponderar por recencia (últimos 10 pesan más)
+  const recentResults = h2h.last_10_results.slice(0, 10);
+  let recentHomeWins = 0;
+  let recentDraws = 0;
+  let recentAwayWins = 0;
+
+  recentResults.forEach((r, i) => {
+    const weight = Math.pow(0.85, i);
+    if (r === "W") recentHomeWins += weight;
+    else if (r === "D") recentDraws += weight;
+    else recentAwayWins += weight;
+  });
+
+  const recentTotal = recentHomeWins + recentDraws + recentAwayWins || 1;
+
+  // Combinar histórico y reciente
+  const homeWinProb = (homeWinRate * 0.4 + (recentHomeWins / recentTotal) * 0.6);
+  const awayWinProb = (awayWinRate * 0.4 + (recentAwayWins / recentTotal) * 0.6);
+  const drawProb = (drawRate * 0.4 + (recentDraws / recentTotal) * 0.6);
+
+  return {
+    homeWinProb: Math.round(homeWinProb * 10000) / 10000,
+    drawProb: Math.round(drawProb * 10000) / 10000,
+    awayWinProb: Math.round(awayWinProb * 10000) / 10000,
+  };
+}
+
+// =============================================
+// MODELO DE CONTEXTO
+// =============================================
+
+function contextModel(
   homeState: TeamState | null,
   awayState: TeamState | null,
+  homeAdvanced: AdvancedStats,
+  awayAdvanced: AdvancedStats,
   context: MatchContext
-): { home_factor: number; away_factor: number } {
+): {
+  homeWinProb: number;
+  drawProb: number;
+  awayWinProb: number;
+} {
   let homeFactor = 1.0;
   let awayFactor = 1.0;
 
   // Factor de urgencia
-  if (context.must_win_home) homeFactor *= 1.15;
-  if (context.must_win_away) awayFactor *= 1.15;
+  if (context.must_win_home) homeFactor *= 1.20;
+  if (context.must_win_away) awayFactor *= 1.20;
 
-  // Factor de diferencia de posición (el que va abajo presiona más)
+  // Factor de importancia del partido
+  const importanceFactor = 1 + context.match_importance * 0.15;
+  homeFactor *= importanceFactor;
+  awayFactor *= importanceFactor;
+
+  // Factor de fatiga
+  homeFactor *= homeAdvanced.fatigue_factor;
+  awayFactor *= awayAdvanced.fatigue_factor;
+
+  // Factor de ventaja de localía (crowd)
+  homeFactor *= (1 + context.home_crowd_factor * 0.1);
+
+  // Factor de rivalidad (los clásicos son más impredecibles)
+  const rivalryFactor = context.rivalry_intensity;
+  const unpredictability = 1 - rivalryFactor * 0.3; // Más rivalidad = más empates
+
+  // Diferencia de posición
   if (homeState && awayState) {
-    const posDiff = awayState.current_position - homeState.current_position;
-    if (posDiff > 3) homeFactor *= 1.05; // Local va mejor, visitante presiona
-    if (posDiff < -3) awayFactor *= 1.05; // Visitante va mejor
+    const posDiff = homeState.current_position - awayState.current_position;
+    if (posDiff < -4) homeFactor *= 1.10; // Local va mejor, presiona
+    if (posDiff > 4) awayFactor *= 1.10; // Visitante va mejor
   }
 
-  return { home_factor: homeFactor, away_factor: awayFactor };
+  // Convertir a probabilidades
+  const baseHome = 0.42;
+  const baseDraw = 0.26;
+  const baseAway = 0.32;
+
+  let homeWinProb = baseHome * homeFactor;
+  let awayWinProb = baseAway * awayFactor;
+  let drawProb = baseDraw * unpredictability;
+
+  // Normalizar
+  const total = homeWinProb + drawProb + awayWinProb;
+  return {
+    homeWinProb: Math.round(homeWinProb / total * 10000) / 10000,
+    drawProb: Math.round(drawProb / total * 10000) / 10000,
+    awayWinProb: Math.round(awayWinProb / total * 10000) / 10000,
+  };
 }
+
+// =============================================
+// PREDICCIÓN PRINCIPAL
+// =============================================
 
 export async function predictMatch(
   homeTeam: string,
@@ -314,125 +819,172 @@ export async function predictMatch(
     must_win_away: false,
     home_needs_points: false,
     away_needs_points: false,
-    rivalry_intensity: 0.5,
+    rivalry_intensity: getRivalry(homeTeam, awayTeam),
+    match_importance: 0.5,
+    home_crowd_factor: 0.7,
+    weather_impact: 0,
+    referee_strictness: 0.5,
   }
-): Promise<PredictionFactors> {
-  // Obtener datos
-  const [homeState, awayState, h2h, homeForm, awayForm] = await Promise.all([
+): Promise<PredictionResult> {
+  // Obtener todos los datos
+  const [homeState, awayState, h2h, homeMatches, awayMatches] = await Promise.all([
     getTeamState(homeTeam),
     getTeamState(awayTeam),
     getHeadToHead(homeTeam, awayTeam),
-    getTeamFormAtHome(homeTeam),
-    getTeamFormAway(awayTeam),
+    getTeamMatchHistory(homeTeam, 30),
+    getTeamMatchHistory(awayTeam, 30),
   ]);
 
-  // Calcular fuerza de cada equipo
-  const homeStrength = calculateTeamStrength(homeState, true);
-  const awayStrength = calculateTeamStrength(awayState, false);
+  // Calcular estadísticas avanzadas
+  const homeAdvanced = calculateAdvancedStats(homeMatches, homeTeam, homeState);
+  const awayAdvanced = calculateAdvancedStats(awayMatches, awayTeam, awayState);
 
-  // Calcular forma
-  const homeFormScore = homeState ? homeState.form_last_5 : 7.5;
-  const awayFormScore = awayState ? awayState.form_last_5 : 7.5;
-  const formDifference = homeFormScore - awayFormScore;
+  // Calcular fuerza de ataque y defensa
+  const homeAttack = homeState 
+    ? (homeState.avg_goals_scored / LIGA_MX_PARAMS.avg_home_goals) * LIGA_MX_PARAMS.attack_strength_multiplier
+    : 1.0;
+  const homeDefense = homeState
+    ? (homeState.avg_goals_conceded / LIGA_MX_PARAMS.avg_away_goals) * LIGA_MX_PARAMS.defense_strength_multiplier
+    : 1.0;
+  const awayAttack = awayState
+    ? (awayState.avg_goals_scored / LIGA_MX_PARAMS.avg_away_goals) * LIGA_MX_PARAMS.attack_strength_multiplier
+    : 1.0;
+  const awayDefense = awayState
+    ? (awayState.avg_goals_conceded / LIGA_MX_PARAMS.avg_home_goals) * LIGA_MX_PARAMS.defense_strength_multiplier
+    : 1.0;
 
-  // Calcular momento (momentum reciente)
-  const homeMomentum = homeState ? calculateFormMomentum(homeState.last_5_results) : 0;
-  const awayMomentum = awayState ? calculateFormMomentum(awayState.last_5_results) : 0;
+  // 1. Modelo de Poisson
+  const poisson = poissonModel(homeAttack, homeDefense, awayAttack, awayDefense, 1.0);
 
-  // Factor de historial
-  let h2hAdvantage = 0;
-  if (h2h.total_matches > 0) {
-    const homeWinRate = h2h.home_wins / h2h.total_matches;
-    const awayWinRate = h2h.away_wins / h2h.total_matches;
-    h2hAdvantage = (homeWinRate - awayWinRate) * 15; // -15 a +15
-  }
+  // 2. Modelo ELO
+  const elo = eloModel(homeAdvanced.elo_rating, awayAdvanced.elo_rating);
 
-  // Factor de tendencia local/visitante
-  let homeAwayTendency = 0;
-  if (homeForm.total > 0 && awayForm.total > 0) {
-    const homeWinPct = homeForm.wins / homeForm.total;
-    const awayWinPctPct = awayForm.wins / awayForm.total;
-    homeAwayTendency = (homeWinPct - awayWinPctPct) * 10;
-  }
+  // 3. Modelo de Forma
+  const homeStreak = homeState ? { type: homeState.streak_type, count: homeState.streak_count } : { type: "", count: 0 };
+  const awayStreak = awayState ? { type: awayState.streak_type, count: awayState.streak_count } : { type: "", count: 0 };
+  
+  const form = formModel(
+    homeState?.form_last_5 || 5,
+    awayState?.form_last_5 || 5,
+    homeAdvanced.weighted_form,
+    awayAdvanced.weighted_form,
+    homeStreak,
+    awayStreak
+  );
 
-  // Factor de contexto
-  const contextFactors = calculateContextFactor(homeState, awayState, context);
+  // 4. Modelo H2H
+  const h2hModelResult = h2hModel(h2h, homeTeam);
 
-  // Calcular probabilidades
-  const totalStrength = homeStrength + awayStrength;
-  let homeWinProb = (homeStrength / totalStrength) * 0.6; // Base 60%
-  let drawProb = 0.25; // Base 25%
-  let awayWinProb = (awayStrength / totalStrength) * 0.6; // Base 60%
+  // 5. Modelo de Contexto
+  const contextModelResult = contextModel(homeState, awayState, homeAdvanced, awayAdvanced, context);
 
-  // Ajustar por forma
-  homeWinProb += formDifference * 0.008;
-  awayWinProb -= formDifference * 0.008;
+  // Combinar modelos con pesos
+  const homeWinProb = 
+    poisson.homeWinProb * MODEL_WEIGHTS.poisson +
+    elo.homeWinProb * MODEL_WEIGHTS.elo +
+    form.homeWinProb * MODEL_WEIGHTS.form +
+    h2hModelResult.homeWinProb * MODEL_WEIGHTS.h2h +
+    contextModelResult.homeWinProb * MODEL_WEIGHTS.context;
 
-  // Ajustar por historial
-  homeWinProb += h2hAdvantage * 0.005;
-  awayWinProb -= h2hAdvantage * 0.005;
+  const drawProb = 
+    poisson.drawProb * MODEL_WEIGHTS.poisson +
+    elo.drawProb * MODEL_WEIGHTS.elo +
+    form.drawProb * MODEL_WEIGHTS.form +
+    h2hModelResult.drawProb * MODEL_WEIGHTS.h2h +
+    contextModelResult.drawProb * MODEL_WEIGHTS.context;
 
-  // Ajustar por momentum
-  homeWinProb += homeMomentum * 0.003;
-  awayWinProb -= homeMomentum * 0.003;
+  const awayWinProb = 
+    poisson.awayWinProb * MODEL_WEIGHTS.poisson +
+    elo.awayWinProb * MODEL_WEIGHTS.elo +
+    form.awayWinProb * MODEL_WEIGHTS.form +
+    h2hModelResult.awayWinProb * MODEL_WEIGHTS.h2h +
+    contextModelResult.awayWinProb * MODEL_WEIGHTS.context;
 
-  // Ajustar por contexto
-  homeWinProb *= contextFactors.home_factor;
-  awayWinProb *= contextFactors.away_factor;
-
-  // Ajustar por tipo de partido (playoffs = más empates)
-  if (context.is_playoff) {
-    drawProb += 0.05;
-    homeWinProb *= 0.95;
-    awayWinProb *= 0.95;
-  }
-
-  // Normalizar probabilidades
+  // Normalizar
   const total = homeWinProb + drawProb + awayWinProb;
-  homeWinProb = homeWinProb / total;
-  drawProb = drawProb / total;
-  awayWinProb = awayWinProb / total;
+  const normalizedHome = homeWinProb / total;
+  const normalizedDraw = drawProb / total;
+  const normalizedAway = awayWinProb / total;
 
-  // Calcular goles esperados (usando promedios históricos)
-  const avgHomeGoals = homeState ? homeState.avg_goals_scored : 1.5;
-  const avgAwayGoals = awayState ? awayState.avg_goals_scored : 1.2;
-  const avgHomeConceded = homeState ? homeState.avg_goals_conceded : 1.2;
-  const avgAwayConceded = awayState ? awayState.avg_goals_conceded : 1.5;
+  // Calcular confianza
+  const maxProb = Math.max(normalizedHome, normalizedDraw, normalizedAway);
+  const entropy = -(
+    normalizedHome * Math.log2(normalizedHome) +
+    normalizedDraw * Math.log2(normalizedDraw) +
+    normalizedAway * Math.log2(normalizedAway)
+  );
+  const confidence = Math.round((1 - entropy / Math.log2(3)) * 100) / 100;
 
-  const expectedHomeGoals = Math.round(((avgHomeGoals + avgAwayConceded) / 2) * 100) / 100;
-  const expectedAwayGoals = Math.round(((avgAwayGoals + avgHomeConceded) / 2) * 100) / 100;
+  let confidenceLevel = "Baja";
+  if (confidence >= 0.6) confidenceLevel = "Muy Alta";
+  else if (confidence >= 0.5) confidenceLevel = "Alta";
+  else if (confidence >= 0.4) confidenceLevel = "Media";
 
   // Determinar predicción
   let prediction = "X";
-  if (homeWinProb > awayWinProb && homeWinProb > drawProb) prediction = "1";
-  else if (awayWinProb > homeWinProb && awayWinProb > drawProb) prediction = "2";
+  if (normalizedHome > normalizedDraw && normalizedHome > normalizedAway) prediction = "1";
+  else if (normalizedAway > normalizedDraw && normalizedAway > normalizedHome) prediction = "2";
+
+  // Calcular goles esperados
+  const expectedHomeGoals = poisson.lambdaHome;
+  const expectedAwayGoals = poisson.lambdaAway;
+  const expectedTotalGoals = expectedHomeGoals + expectedAwayGoals;
 
   return {
-    team_state: {
-      home_strength: Math.round(homeStrength * 10) / 10,
-      away_strength: Math.round(awayStrength * 10) / 10,
-      form_difference: Math.round(formDifference * 10) / 10,
-      streak_factor: (homeState?.streak_count || 0) - (awayState?.streak_count || 0),
-    },
-    history: {
-      h2h_advantage: Math.round(h2hAdvantage * 10) / 10,
-      home_away_tendency: Math.round(homeAwayTendency * 10) / 10,
-    },
-    form: {
-      home_form: homeFormScore,
-      away_form: awayFormScore,
-      momentum: homeMomentum - awayMomentum,
-    },
-    context: {
-      urgency_factor: (contextFactors.home_factor + contextFactors.away_factor) / 2,
-      home_advantage: 5, // Constante de ventaja de localía
-    },
-    combined: {
-      home_win_prob: Math.round(homeWinProb * 10000) / 10000,
-      draw_prob: Math.round(drawProb * 10000) / 10000,
-      away_win_prob: Math.round(awayWinProb * 10000) / 10000,
-      expected_home_goals: expectedHomeGoals,
-      expected_away_goals: expectedAwayGoals,
+    home_win_prob: Math.round(normalizedHome * 10000) / 10000,
+    draw_prob: Math.round(normalizedDraw * 10000) / 10000,
+    away_win_prob: Math.round(normalizedAway * 10000) / 10000,
+    expected_home_goals: expectedHomeGoals,
+    expected_away_goals: expectedAwayGoals,
+    expected_total_goals: Math.round(expectedTotalGoals * 100) / 100,
+    over_1_5_prob: poisson.over15,
+    over_2_5_prob: poisson.over25,
+    over_3_5_prob: poisson.over35,
+    under_1_5_prob: poisson.under15,
+    under_2_5_prob: poisson.under25,
+    under_3_5_prob: poisson.under35,
+    btts_yes_prob: poisson.bttsYes,
+    btts_no_prob: poisson.bttsNo,
+    home_clean_sheet_prob: poisson.homeCleanSheet,
+    away_clean_sheet_prob: poisson.awayCleanSheet,
+    likely_scores: poisson.likelyScores.slice(0, 5),
+    confidence: confidence,
+    confidence_level: confidenceLevel,
+    prediction,
+    factors: {
+      team_strength: {
+        home: homeAdvanced.elo_rating,
+        away: awayAdvanced.elo_rating,
+        diff: homeAdvanced.elo_rating - awayAdvanced.elo_rating,
+      },
+      form: {
+        home: homeState?.form_last_5 || 5,
+        away: awayState?.form_last_5 || 5,
+        weighted_home: Math.round(homeAdvanced.weighted_form * 100) / 100,
+        weighted_away: Math.round(awayAdvanced.weighted_form * 100) / 100,
+      },
+      h2h: {
+        advantage: h2h.home_team_goals_scored - h2h.away_team_goals_scored,
+        recent_dominance: h2h.last_10_results.filter(r => r === "W").length / (h2h.last_10_results.length || 1),
+      },
+      home_away: {
+        home_advantage: homeState ? (homeState.home_wins / (homeState.home_wins + homeState.home_draws + homeState.home_losses || 1)) : 0.45,
+        away_performance: awayState ? (awayState.away_wins / (awayState.away_wins + awayState.away_draws + awayState.away_losses || 1)) : 0.35,
+      },
+      context: {
+        urgency: context.must_win_home ? 1.2 : context.must_win_away ? 0.8 : 1.0,
+        importance: context.match_importance,
+        fatigue: (homeAdvanced.fatigue_factor + awayAdvanced.fatigue_factor) / 2,
+      },
+      poisson: {
+        lambda_home: poisson.lambdaHome,
+        lambda_away: poisson.lambdaAway,
+      },
+      elo: {
+        home: homeAdvanced.elo_rating,
+        away: awayAdvanced.elo_rating,
+        diff: homeAdvanced.elo_rating - awayAdvanced.elo_rating,
+      },
     },
   };
 }
@@ -447,8 +999,9 @@ export function getPredictionLabel(prediction: string): string {
 }
 
 export function getConfidenceLabel(confidence: number): string {
-  if (confidence >= 0.7) return "Alta";
-  if (confidence >= 0.5) return "Media";
+  if (confidence >= 0.6) return "Muy Alta";
+  if (confidence >= 0.5) return "Alta";
+  if (confidence >= 0.4) return "Media";
   if (confidence >= 0.3) return "Baja";
   return "Muy Baja";
 }
