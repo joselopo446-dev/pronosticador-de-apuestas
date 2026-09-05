@@ -55,7 +55,7 @@ export default function LotteryView({
   numbersCount,
   draws,
 }: LotteryViewProps) {
-  const [activeTab, setActiveTab] = useState<"frecuencias" | "calientes" | "atrasados" | "coocurrencia" | "patrones" | "backtest" | "temporal" | "generar">("frecuencias");
+  const [activeTab, setActiveTab] = useState<"frecuencias" | "calientes" | "atrasados" | "coocurrencia" | "patrones" | "backtest" | "temporal" | "generar" | "expert">("frecuencias");
   const [generated, setGenerated] = useState<GeneratedCombination | null>(null);
   const [genStrategy, setGenStrategy] = useState<"frecuencia" | "atrasados" | "mixto" | "aleatorio">("mixto");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -109,17 +109,17 @@ export default function LotteryView({
     setIsGenerating(true);
     setTimeout(async () => {
       try {
-        // Usar el nuevo predictor mejorado
+        // Usar el nuevo predictor experto
         const { generatePrediction } = await import("@/lib/lottery-predictor");
         
         const strategyMap: Record<string, string> = {
-          "frecuencia": "hot-cold",
-          "atrasados": "overdue",
+          "frecuencia": "hot-cold-balance",
+          "atrasados": "delta-optimal",
           "mixto": "ensemble",
-          "aleatorio": "ml",
+          "aleatorio": "expert-balance",
         };
         
-        const result = generatePrediction(slug, strategyMap[genStrategy] || "ensemble", draws);
+        const result = generatePrediction(draws, strategyMap[genStrategy] || "ensemble", slug);
         
         // Convertir al formato esperado
         const generatedCombo: GeneratedCombination = {
@@ -194,7 +194,7 @@ export default function LotteryView({
 
       {/* Tabs de análisis */}
       <div className="flex gap-2 border-b border-gray-700 pb-2 flex-wrap">
-        {(["frecuencias", "calientes", "atrasados", "coocurrencia", "patrones", "backtest", "temporal", "generar"] as const).map((tab) => (
+        {(["frecuencias", "calientes", "atrasados", "coocurrencia", "patrones", "backtest", "temporal", "generar", "expert"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -212,6 +212,7 @@ export default function LotteryView({
             {tab === "backtest" && "Backtest"}
             {tab === "temporal" && "Temporal"}
             {tab === "generar" && "Generar"}
+            {tab === "expert" && "🔮 Expert"}
           </button>
         ))}
       </div>
@@ -707,6 +708,123 @@ export default function LotteryView({
             <p className="text-sm text-yellow-400">
               ⚠️ <strong>Aviso:</strong> Estos números son generados basándose en análisis estadístico histórico.
               La lotería es un juego de azar y ningún método garantiza resultados.
+              Juega responsablemente.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Expert Tab Content */}
+      {activeTab === "expert" && (
+        <div className="bg-gray-800 border border-purple-500/30 rounded-xl p-6">
+          <h3 className="text-lg font-semibold text-purple-400 mb-4">
+            🔮 Predictor Experto de Lotería
+          </h3>
+          <p className="text-gray-400 mb-6">
+            Sistema de predicción de nivel experto con 7 estrategias avanzadas
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Estrategias disponibles */}
+            <div className="space-y-3">
+              <h4 className="text-white font-medium">Estrategias Disponibles:</h4>
+              <div className="space-y-2">
+                <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <p className="text-purple-400 font-medium">1. Ensemble Experto</p>
+                  <p className="text-sm text-gray-400">Combina las 7 estrategias y usa votación</p>
+                </div>
+                <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <p className="text-purple-400 font-medium">2. Balance de Familias</p>
+                  <p className="text-sm text-gray-400">Distribuye entre rangos numéricos (1-13, 14-26, etc.)</p>
+                </div>
+                <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <p className="text-purple-400 font-medium">3. Deltas Óptimos</p>
+                  <p className="text-sm text-gray-400">Usa patrones de diferencia entre números</p>
+                </div>
+                <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <p className="text-purple-400 font-medium">4. Análisis Posicional</p>
+                  <p className="text-sm text-gray-400">Números óptimos por posición (1ro, 2do, etc.)</p>
+                </div>
+                <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <p className="text-purple-400 font-medium">5. Suma Óptima</p>
+                  <p className="text-sm text-gray-400">Busca la suma ideal de 130-140</p>
+                </div>
+                <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <p className="text-purple-400 font-medium">6. Balance Caliente/Frío</p>
+                  <p className="text-sm text-gray-400">60% calientes, 40% fríos (ratio experto)</p>
+                </div>
+                <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                  <p className="text-purple-400 font-medium">7. Primos y Fibonacci</p>
+                  <p className="text-sm text-gray-400">Números especiales matemáticos</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Secretos de experto */}
+            <div className="space-y-3">
+              <h4 className="text-white font-medium">Secretos de Expertos:</h4>
+              <div className="space-y-2">
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  <p className="text-green-400 font-medium">✓ Balance de Familias</p>
+                  <p className="text-sm text-gray-400">Nunca jugar todos de un mismo rango</p>
+                </div>
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  <p className="text-green-400 font-medium">✓ Suma Óptima</p>
+                  <p className="text-sm text-gray-400">La suma debe estar entre 90-180 (Melate)</p>
+                </div>
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  <p className="text-green-400 font-medium">✓ Pocos Consecutivos</p>
+                  <p className="text-sm text-gray-400">Máximo 2 números consecutivos</p>
+                </div>
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  <p className="text-green-400 font-medium">✓ Balance Par/Impar</p>
+                  <p className="text-sm text-gray-400">3 pares y 3 impares es ideal</p>
+                </div>
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  <p className="text-green-400 font-medium">✓ Números Atrasados</p>
+                  <p className="text-sm text-gray-400">Incluir 1-2 números que llevan tiempo sin salir</p>
+                </div>
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  <p className="text-green-400 font-medium">✓ Primos Incluidos</p>
+                  <p className="text-sm text-gray-400">2-4 números primos mejoran probabilidades</p>
+                </div>
+                <div className="p-3 bg-gray-700/50 rounded-lg">
+                  <p className="text-green-400 font-medium">✓ Dígitos Diferentes</p>
+                  <p className="text-sm text-gray-400">Evitar terminaciones repetidas</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Botón para generar predicciones expertas */}
+          <div className="mt-6 flex gap-3">
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch("/api/lottery/predictions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ type: slug, strategy: "ensemble", forceGenerate: true }),
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    alert(`Predicciones expertas generadas para ${name}!`);
+                  }
+                } catch (e) {
+                  alert("Error generando predicciones");
+                }
+              }}
+              className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+            >
+              🔮 Generar Predicciones Expertas
+            </button>
+          </div>
+
+          {/* Disclaimer */}
+          <div className="mt-6 bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+            <p className="text-sm text-yellow-400">
+              ⚠️ <strong>Aviso:</strong> Estas predicciones usan técnicas avanzadas de análisis estadístico,
+              pero la lotería sigue siendo un juego de azar. Ningún método garantiza resultados.
               Juega responsablemente.
             </p>
           </div>
