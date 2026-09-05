@@ -496,8 +496,8 @@ function strategySumOptimal(history: LotteryDraw[], maxNum: number, count: numbe
 
   for (let i = 0; i < count; i++) {
     const avgForRemaining = remainingSum / remainingCount;
-    const minPossible = Math.max(1, avgForRemaining - 15);
-    const maxPossible = Math.min(maxNum, avgForRemaining + 15);
+    const minPossible = Math.floor(Math.max(1, avgForRemaining - 15));
+    const maxPossible = Math.ceil(Math.min(maxNum, avgForRemaining + 15));
     
     const num = Math.floor(Math.random() * (maxPossible - minPossible + 1)) + minPossible;
     numbers.push(num);
@@ -714,6 +714,9 @@ export function generatePrediction(
       numbers = strategyExpertBalance(history, maxNum, count);
       strategies = ["Balance de familias"];
   }
+
+  // Asegurar que todos los números sean enteros
+  numbers = numbers.map(n => Math.round(n)).filter(n => n >= 1 && n <= maxNum);
 
   // Calcular confianza basada en múltiples factores
   let confidence = 0.5;
