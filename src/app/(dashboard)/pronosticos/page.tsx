@@ -5,6 +5,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
+import ActionButtons from "./ActionButtons";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -83,18 +84,7 @@ export default async function PronosticosPage() {
             Predicciones automáticas generadas 1 día antes de cada sorteo.
           </p>
         </div>
-        <div className="flex gap-2">
-          <form action="/api/lottery/predictions" method="POST">
-            <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
-              Generar Predicciones
-            </button>
-          </form>
-          <form action="/api/lottery/predictions/check" method="POST">
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              Verificar Resultados
-            </button>
-          </form>
-        </div>
+        <ActionButtons />
       </div>
 
       {/* Stats generales */}
