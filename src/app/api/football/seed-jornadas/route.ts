@@ -94,15 +94,9 @@ export async function POST() {
       success: true,
       premier: premierMatches.length,
       laliga: laligaMatches.length,
-      premierJornadas: premierMatches.filter(m => m.jornada_number <= 38).length / matchesPerRoundCount(premierMatches),
-      message: `Premier: ${premierMatches.length} partidos (38 jornadas), LaLiga: ${laligaMatches.length} partidos (38 jornadas)`,
+      message: `Premier: ${premierMatches.length} partidos, LaLiga: ${laligaMatches.length} partidos`,
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
-}
-
-function matchesPerRoundCount(matches: { jornada_number: number }[]): number {
-  const firstJornada = matches.filter(m => m.jornada_number === 1).length;
-  return firstJornada || 10;
 }
