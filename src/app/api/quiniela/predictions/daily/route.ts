@@ -24,11 +24,11 @@ const LEAGUE_RPC: Record<string, string> = {
   "laliga": "get_current_jornada_by_league",
 };
 
-// Fechas de inicio de temporada por liga (temporada 2025-2026)
+// Fechas de inicio de temporada por liga (temporada 2026-2027)
 const LEAGUE_SEASON_START: Record<string, string> = {
-  "liga-mx": "2025-07-12",
-  "premier": "2025-08-16",
-  "laliga": "2025-08-17",
+  "liga-mx": "2026-07-12",
+  "premier": "2026-08-16",
+  "laliga": "2026-08-17",
 };
 
 const LEAGUE_JORNADAS_PER_SEASON: Record<string, number> = {
