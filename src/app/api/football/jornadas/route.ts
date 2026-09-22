@@ -25,6 +25,35 @@ const LEAGUE_RPC: Record<string, string> = {
   "laliga": "get_current_jornada_by_league",
 };
 
+// Fechas de inicio de temporada por liga (temporada 2025-2026)
+const LEAGUE_SEASON_START: Record<string, string> = {
+  "liga-mx": "2025-07-12",
+  "premier": "2025-08-16",
+  "laliga": "2025-08-17",
+};
+
+const LEAGUE_JORNADAS_PER_SEASON: Record<string, number> = {
+  "liga-mx": 17,
+  "premier": 38,
+  "laliga": 38,
+};
+
+function calculateCurrentJornada(league: string): number {
+  const startDate = LEAGUE_SEASON_START[league];
+  const totalJornadas = LEAGUE_JORNADAS_PER_SEASON[league] || 17;
+  
+  if (!startDate) return 1;
+  
+  const start = new Date(startDate);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) return 1;
+  
+  const jornada = Math.floor(diffDays / 7) + 1;
+  return Math.min(jornada, totalJornadas);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -40,20 +69,8 @@ export async function GET(request: NextRequest) {
       .order("match_index", { ascending: true });
 
     if (current) {
-      const rpcName = LEAGUE_RPC[league] || "get_current_jornada";
-      let jornadaNumber: number | null = null;
-      
-      if (league === "liga-mx") {
-        const { data: currentData } = await supabase.rpc(rpcName);
-        jornadaNumber = currentData;
-      } else {
-        const { data: currentData } = await supabase.rpc(rpcName, { p_league: league });
-        jornadaNumber = currentData;
-      }
-      
-      if (jornadaNumber) {
-        query = query.eq("jornada_number", jornadaNumber);
-      }
+      const jornadaNumber = calculateCurrentJornada(league);
+      query = query.eq("jornada_number", jornadaNumber);
     } else if (jornada) {
       query = query.eq("jornada_number", parseInt(jornada));
     }

@@ -24,6 +24,43 @@ const LEAGUE_RPC: Record<string, string> = {
   "laliga": "get_current_jornada_by_league",
 };
 
+// Fechas de inicio de temporada por liga (temporada 2025-2026)
+const LEAGUE_SEASON_START: Record<string, string> = {
+  "liga-mx": "2025-07-12",
+  "premier": "2025-08-16",
+  "laliga": "2025-08-17",
+};
+
+const LEAGUE_JORNADAS_PER_SEASON: Record<string, number> = {
+  "liga-mx": 17,
+  "premier": 38,
+  "laliga": 38,
+};
+
+// Días por jornada (aproximado)
+const LEAGUE_DAYS_PER_JORNADA: Record<string, number> = {
+  "liga-mx": 7,
+  "premier": 7,
+  "laliga": 7,
+};
+
+function calculateCurrentJornada(league: string): number {
+  const startDate = LEAGUE_SEASON_START[league];
+  const totalJornadas = LEAGUE_JORNADAS_PER_SEASON[league] || 17;
+  const daysPerJornada = LEAGUE_DAYS_PER_JORNADA[league] || 7;
+  
+  if (!startDate) return 1;
+  
+  const start = new Date(startDate);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) return 1; // Temporada no ha empezado
+  
+  const jornada = Math.floor(diffDays / daysPerJornada) + 1;
+  return Math.min(jornada, totalJornadas);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -136,13 +173,8 @@ async function generateDailyPredictions(today: string, jornada?: string | null, 
   let jornadaNumber = jornada ? parseInt(jornada) : null;
 
   if (!jornadaNumber) {
-    if (league === "liga-mx") {
-      const { data: currentJornada } = await supabase.rpc(rpcName);
-      jornadaNumber = currentJornada || 1;
-    } else {
-      const { data: currentJornada } = await supabase.rpc(rpcName, { p_league: league });
-      jornadaNumber = currentJornada || 1;
-    }
+    // Calcular jornada actual basada en fecha de temporada
+    jornadaNumber = calculateCurrentJornada(league);
   }
 
   // 2. Obtener partidos de la jornada
