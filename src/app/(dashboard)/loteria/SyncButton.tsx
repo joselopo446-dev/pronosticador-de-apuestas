@@ -3,15 +3,16 @@
 import { useState } from "react";
 
 interface SyncResult {
-  melate: { found: number; inserted: number };
-  revancha: { found: number; inserted: number };
-  "super-lotto": { found: number; inserted: number };
+  melate: { found: number; inserted: number; updated: number };
+  revancha: { found: number; inserted: number; updated: number };
+  "super-lotto": { found: number; inserted: number; updated: number };
 }
 
 export default function SyncButton() {
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<string | null>(null);
 
   async function handleSync() {
     setSyncing(true);
@@ -19,11 +20,14 @@ export default function SyncButton() {
     setError(null);
 
     try {
-      const response = await fetch("/api/lottery/sync");
+      const response = await fetch("/api/lottery/sync", {
+        method: "POST",
+      });
       const data = await response.json();
 
       if (data.success) {
         setResult(data.results);
+        setLastSync(new Date().toLocaleTimeString());
       } else {
         setError(data.error || "Error al sincronizar");
       }
@@ -61,7 +65,8 @@ export default function SyncButton() {
 
       {result && (
         <div className="text-sm text-gray-400">
-          <span className="text-green-400">✓</span> Melate: {result.melate.inserted} | Revancha: {result.revancha.inserted} | Super Lotto: {result["super-lotto"].inserted} nuevos
+          <span className="text-green-400">✓</span> Melate: +{result.melate.inserted} nuevos | Revancha: +{result.revancha.inserted} nuevos | Super Lotto: +{result["super-lotto"].inserted} nuevos
+          {lastSync && <span className="text-gray-500 ml-2">({lastSync})</span>}
         </div>
       )}
 
